@@ -1,0 +1,8 @@
+holograms:
+  verify:
+    line1: "<bold><gradient:#00c3ff:#6a00ff>✨ Verify your Account</gradient></bold>"
+    line2: "<gray>Link your Minecraft account to our website</gray>"
+    line3: "<gray>Unlock the <gold>shop</gold> and your <aqua>Discord role</aqua></gray>"
+    line4: "<gray>Get your <green>verified prefix</green> in-game</gray>"
+    line5: "<gray>Protect your identity and access exclusive perks</gray>"
+    line6: "<bold><yellow>👉 Use <white>/verify</white> in chat to begin!</yellow></bold>"

@@ -1,0 +1,31 @@
+# PlaceholderAPI placeholders supported:
+#   %lang_(key)%           - Shows the translation for the key in the player's language
+#   %lang_player%          - Shows the player's current language
+#   %lang_player_(nick)%   - Shows the specified player's language
+
+# Enable debug mode for more detailed logs.
+debug: false
+
+# Default language for the plugin.
+# If a translation is not found in the player's language, this language will be used as fallback.
+defaultLang: en_us
+
+# Translation cache size (improves performance, but uses more memory).
+translationCacheSize: 500
+
+# Storage configuration for player languages:
+# type: yaml, sqlite or mysql
+# Data from yaml it's automatically migrated to sqlite or mysql.
+storage:
+  type: yaml # yaml, sqlite or mysql
+  mysql:
+    host: localhost
+    port: 3306
+    database: mtranslator
+    user: root
+    password: password
+    properties:
+      autoReconnect: true
+      useSSL: false
+      connectTimeout: 5000
+      characterEncoding: utf8

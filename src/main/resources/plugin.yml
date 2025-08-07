@@ -1,0 +1,14 @@
+name: MysterriaTranslator
+version: '${project.version}'
+author: 'Mysterria'
+main: net.mysterria.translator.MysterriaTranslator
+depend: [ PlaceholderAPI ]
+commands:
+  languages:
+    description: Main command of mtranslator
+    usage: /<command> [help|set|get|list|reload]
+    aliases: [ lang, langs, iglang, iglangs, mtranslator ]
+permissions:
+  mtranslator.admin:
+    description: Total access to mtranslator commands
+    default: op
