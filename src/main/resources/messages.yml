@@ -20,3 +20,9 @@ invalid_lang: "&cThe language '{lang}' does not exist. Available languages: {lan
 unknown_subcommand: "&cUnknown subcommand."
 only_players: "&cOnly players can execute this command."
 translation_not_found: "&cTranslation '{key}' not found."
+
+translation:
+  rate_limited: "&cYou're sending messages too fast! Please wait before sending another message."
+  service_unavailable: "&cTranslation service is currently unavailable."
+  language_detected: "&7Language detected: &a{language}"
+  translation_failed: "&cFailed to translate message."

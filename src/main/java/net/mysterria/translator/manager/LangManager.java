@@ -5,7 +5,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.storage.PlayerLangStorage;
 import net.mysterria.translator.storage.model.LangEnum;
-import net.mysterria.translator.util.MessageUtil;
+import net.mysterria.translator.util.MessageSerializer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -145,7 +145,7 @@ public class LangManager {
         if (translationCache.containsKey(cacheKey)) {
             String cached = translationCache.get(cacheKey);
             String processedCached = PlaceholderAPI.setPlaceholders(player, cached);
-            return LEGACY_SERIALIZER.serialize(MessageUtil.parseMessage(processedCached));
+            return LEGACY_SERIALIZER.serialize(MessageSerializer.parseMessage(processedCached));
         }
 
         Map<String, String> langMap = translations.getOrDefault(lang, Collections.emptyMap());
@@ -153,13 +153,13 @@ public class LangManager {
         String translation = langMap.getOrDefault(key.toLowerCase(), defaultMap.get(key.toLowerCase()));
 
         if (translation == null) {
-            translation = MessageUtil.getMessageString(plugin.getMessagesConfig(), "translation_not_found", "{key}", key);
+            translation = MessageSerializer.getMessageString(plugin.getMessagesConfig(), "translation_not_found", "{key}", key);
         }
 
         translationCache.put(cacheKey, translation);
 
         String processedTranslation = PlaceholderAPI.setPlaceholders(player, translation);
-        String result = LEGACY_SERIALIZER.serialize(MessageUtil.parseMessage(processedTranslation));
+        String result = LEGACY_SERIALIZER.serialize(MessageSerializer.parseMessage(processedTranslation));
         return result;
     }
 
@@ -175,12 +175,12 @@ public class LangManager {
         String translation = langMap.getOrDefault(key.toLowerCase(), defaultMap.get(key.toLowerCase()));
 
         if (translation == null) {
-            translation = MessageUtil.getMessageString(plugin.getMessagesConfig(), "translation_not_found", "{key}", key);
+            translation = MessageSerializer.getMessageString(plugin.getMessagesConfig(), "translation_not_found", "{key}", key);
         }
 
         translationCache.put(cacheKey, translation);
 
-        return LEGACY_SERIALIZER.serialize(MessageUtil.parseMessage(translation));
+        return LEGACY_SERIALIZER.serialize(MessageSerializer.parseMessage(translation));
     }
 
     public void clearCache() {

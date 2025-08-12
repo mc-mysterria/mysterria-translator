@@ -3,13 +3,16 @@ package net.mysterria.translator;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.translator.command.LangCommand;
+import net.mysterria.translator.listener.ChatListener;
 import net.mysterria.translator.listener.PlayerJoinListener;
 import net.mysterria.translator.manager.LangManager;
+import net.mysterria.translator.ollama.OllamaClient;
 import net.mysterria.translator.placeholder.LangExpansion;
 import net.mysterria.translator.storage.PlayerLangStorage;
 import net.mysterria.translator.storage.impl.MySQLPlayerLangStorage;
 import net.mysterria.translator.storage.impl.SQLitePlayerLangStorage;
 import net.mysterria.translator.storage.impl.YamlPlayerLangStorage;
+import net.mysterria.translator.translation.TranslationManager;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -22,6 +25,8 @@ public class MysterriaTranslator extends JavaPlugin {
     private LangManager langManager;
     private FileConfiguration messagesConfig;
     PlayerLangStorage storage;
+    private TranslationManager translationManager;
+    private OllamaClient ollamaClient;
 
     private final String pluginVersion = getDescription().getVersion();
 
@@ -46,8 +51,12 @@ public class MysterriaTranslator extends JavaPlugin {
 
         initDatabase();
 
+        this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"));
         this.langManager = new LangManager(this, storage);
+        this.translationManager = new TranslationManager(this, ollamaClient);
+
         langManager.loadAll();
+
         log("Configuration successfully loaded.");
         log("Loaded " + langManager.getAvailableLangs().size() + " languages! " + langManager.getAvailableLangs());
         log("Loaded " + langManager.getTotalTranslationsCount() + " total translations!");
@@ -63,6 +72,7 @@ public class MysterriaTranslator extends JavaPlugin {
 
         getCommand("lang").setExecutor(new LangCommand(langManager, this));
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
+        getServer().getPluginManager().registerEvents(new ChatListener(this, translationManager), this);
 
         long endTime = System.currentTimeMillis();
         log("\u001B[1;32mPlugin loaded successfully in " + (endTime - startTime) + "ms\u001B[0m");

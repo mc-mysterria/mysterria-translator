@@ -5,7 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.manager.LangManager;
-import net.mysterria.translator.util.MessageUtil;
+import net.mysterria.translator.util.MessageSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -41,7 +41,7 @@ public class LangCommand implements CommandExecutor {
         }
 
         if (!sender.hasPermission("mtranslator.admin")) {
-            sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "no_permission"));
+            sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "no_permission"));
             return true;
         }
 
@@ -65,7 +65,7 @@ public class LangCommand implements CommandExecutor {
             langManager.clearCache();
             plugin.log("Reloaded " + langManager.getAvailableLangs().size() + " languages! " + langManager.getAvailableLangs());
             plugin.log("Reloaded " + langManager.getTotalTranslationsCount() + " total translations!");
-            sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "reload_success"));
+            sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "reload_success"));
             return true;
         }
 
@@ -73,20 +73,20 @@ public class LangCommand implements CommandExecutor {
             if (args.length == 3) {
                 Player target = Bukkit.getPlayer(args[1]);
                 if (target == null) {
-                    sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "player_not_found"));
+                    sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "player_not_found"));
                     return true;
                 }
                 String lang = args[2];
                 List<String> availableLangs = langManager.getAvailableLangs();
                 if (!availableLangs.contains(lang)) {
-                    sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "invalid_lang", "{lang}", lang, "{langs}", String.join(", ", availableLangs)));
+                    sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "invalid_lang", "{lang}", lang, "{langs}", String.join(", ", availableLangs)));
                     return true;
                 }
                 langManager.setPlayerLang(target.getUniqueId(), lang);
                 langManager.savePlayerLang(target.getUniqueId());
-                sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "set_success", "{player}", target.getName(), "{lang}", lang));
+                sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "set_success", "{player}", target.getName(), "{lang}", lang));
             } else {
-                sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "set_usage"));
+                sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "set_usage"));
             }
             return true;
         }
@@ -95,24 +95,24 @@ public class LangCommand implements CommandExecutor {
             if (args.length == 2) {
                 Player target = Bukkit.getPlayer(args[1]);
                 if (target == null) {
-                    sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "player_not_found"));
+                    sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "player_not_found"));
                     return true;
                 }
                 String lang = langManager.getPlayerLang(target.getUniqueId());
-                sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "get_success", "{player}", target.getName(), "{lang}", lang));
+                sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "get_success", "{player}", target.getName(), "{lang}", lang));
             } else {
-                sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "get_usage"));
+                sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "get_usage"));
             }
             return true;
         }
 
         if (args[0].equalsIgnoreCase("list")) {
             List<String> langs = langManager.getAvailableLangs();
-            sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "list_languages", "{langs}", String.join(", ", langs)));
+            sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "list_languages", "{langs}", String.join(", ", langs)));
             return true;
         }
 
-        sender.sendMessage(MessageUtil.getMessage(plugin.getMessagesConfig(), "unknown_subcommand"));
+        sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "unknown_subcommand"));
         return true;
     }
 }

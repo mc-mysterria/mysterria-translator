@@ -29,3 +29,27 @@ storage:
       useSSL: false
       connectTimeout: 5000
       characterEncoding: utf8
+
+# Dynamic translation settings
+translation:
+  # Enable/disable automatic translation
+  enabled: true
+
+  # Ollama configuration
+  ollama:
+    url: "http://ollama:11434"
+    model: "qwen2.5:3b"  # Recommended: qwen2.5:3b or gemma2:2b
+
+  # Cache settings
+  cacheExpirySeconds: 30
+
+  # Rate limiting (messages per time window per player)
+  rateLimitMessages: 2
+  rateLimitWindowSeconds: 10
+
+  # Translation thresholds
+  minMessageLength: 3
+  maxRetries: 2
+
+  # Debug translation events
+  debug: true

@@ -6,7 +6,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.configuration.file.FileConfiguration;
 import java.util.List;
 
-public class MessageUtil {
+public class MessageSerializer {
 
     private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacyAmpersand();
     private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
