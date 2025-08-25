@@ -60,7 +60,7 @@ jobs:
               ]
             else
               []
-            fi
+            end
           ' "$SERVER_CONFIG")
 
           echo "$TARGETS" | jq .
