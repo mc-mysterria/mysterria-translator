@@ -12,6 +12,12 @@ on:
       - 'build.gradle.kts'
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Init step
+        run: echo "Workflow triggered successfully! Proceeding..."
+
   build:
     runs-on: ubuntu-latest
     outputs:
