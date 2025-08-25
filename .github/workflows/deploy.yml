@@ -45,7 +45,7 @@ jobs:
             exit 1
           fi
 
-          TARGETS=$(jq --arg repo "$REPO_NAME" '
+          TARGETS=$(jq -c --arg repo "$REPO_NAME" '
             if .[$repo] then
               [
                 # If environments exist, expand them
