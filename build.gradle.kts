@@ -20,7 +20,7 @@ dependencies {
 }
 
 group = "net.mysterria"
-version = "1.0.1"
+version = "1.0.2"
 description = "translator"
 java.sourceCompatibility = JavaVersion.VERSION_21
 
