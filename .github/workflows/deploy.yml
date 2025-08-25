@@ -12,9 +12,10 @@ on:
       - 'build.gradle.kts'
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-
+    outputs:
+      targets: ${{ steps.config.outputs.targets }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,55 +27,48 @@ jobs:
           token: ${{ secrets.CONFIG_REPO_TOKEN }}
           path: .deployment-config
 
-      - name: Load deployment configuration
+      - name: Load deployment targets
+        id: config
         run: |
           set -e
           REPO_NAME="${{ github.repository }}"
-          ENV_NAME="${{ github.ref_name }}"
-
-          echo "🔧 Loading configuration for $REPO_NAME ($ENV_NAME)"
-
           SERVER_CONFIG=".deployment-config/servers.json"
+
           if [ ! -f "$SERVER_CONFIG" ]; then
             echo "❌ Server configuration file not found"
             exit 1
           fi
 
-          SERVER_DATA=$(jq --arg repo "$REPO_NAME" --arg env "$ENV_NAME" '
+          TARGETS=$(jq --arg repo "$REPO_NAME" '
             if .[$repo] then
-              (
-                .defaults // {}
-                * (.[$repo] | del(.environments))
-                * ( .[$repo].environments[$env] // {} )
-              )
+              [
+                # If environments exist, expand them
+                ( .[$repo].environments | to_entries[]? | {
+                  name: .key,
+                  server_id: .value.server_id,
+                  pelican_url: .value.pelican_url,
+                  api_key_secret: .value.api_key_secret
+                } ),
+                # Otherwise, take top-level if server_id exists
+                ( .[$repo] | select(has("server_id")) | {
+                  name: "default",
+                  server_id: .server_id,
+                  pelican_url: .pelican_url,
+                  api_key_secret: .api_key_secret
+                } )
+              ]
             else
-              error("No configuration found for repository: " + $repo)
+              []
             end
           ' "$SERVER_CONFIG")
 
-          SERVER_ID=$(echo "$SERVER_DATA" | jq -r '.server_id // empty')
-          PELICAN_URL=$(echo "$SERVER_DATA" | jq -r '.pelican_url // empty')
-          BACKUP_ENABLED=$(echo "$SERVER_DATA" | jq -r '.backup_enabled // true')
-
-          if [ -z "$SERVER_ID" ] || [ -z "$PELICAN_URL" ]; then
-            echo "❌ server_id and pelican_url are required"
-            exit 1
-          fi
-
-          echo "SERVER_ID=$SERVER_ID" >> $GITHUB_ENV
-          echo "PELICAN_URL=$PELICAN_URL" >> $GITHUB_ENV
-          echo "BACKUP_ENABLED=$BACKUP_ENABLED" >> $GITHUB_ENV
-
-          # Inject API keys
-          echo "ULTRA_API_KEY=${{ secrets.ULTRA_API_KEY }}" >> $GITHUB_ENV
-          echo "PELICAN_API_KEY=${{ secrets.PELICAN_API_KEY }}" >> $GITHUB_ENV
-
-          echo "✅ Config loaded for server $SERVER_ID ($PELICAN_URL)"
+          echo "$TARGETS" | jq .
+          echo "targets=$TARGETS" >> $GITHUB_OUTPUT
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: 'temurin'
 
       - name: Build plugin
@@ -107,65 +101,88 @@ jobs:
           echo "PLUGIN_NAME=$(basename "$PLUGIN_FILE" .jar)" >> $GITHUB_ENV
           echo "✅ Built plugin: $(basename "$PLUGIN_FILE")"
 
-      - name: Validate plugin
-        run: |
-          echo "🔍 Validating plugin..."
-          if jar tf plugins/plugin.jar >/dev/null 2>&1; then
-            echo "✅ $(basename plugins/plugin.jar) is a valid jar"
-          else
-            echo "❌ Invalid jar file"
-            exit 1
-          fi
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: plugins/plugin.jar
 
-      - name: Remove old plugin
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.build.outputs.targets) }}
+    steps:
+      - name: Download built plugin
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin
+          path: plugins
+
+      - name: Deploy to server
         run: |
-          echo "🗑 Removing old plugins..."
+          SERVER_ID="${{ matrix.target.server_id }}"
+          PELICAN_URL="${{ matrix.target.pelican_url }}"
+          API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
+          API_KEY="${{ secrets[API_KEY_SECRET] }}"
+
+          echo "📤 Deploying to $SERVER_ID ($PELican_URL)"
+
+          # Remove old plugins
           RESPONSE=$(curl -s \
-            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/list?directory=%2Fplugins")
           FILES=$(echo "$RESPONSE" | jq -r '.data[]? | select(.attributes.is_file and (.attributes.name | endswith(".jar"))) | .attributes.name')
           for file in $FILES; do
             curl -s -X POST \
-              -H "Authorization: Bearer $PELICAN_API_KEY" \
+              -H "Authorization: Bearer $API_KEY" \
               -H "Content-Type: application/json" \
               "$PELICAN_URL/api/client/servers/$SERVER_ID/files/delete" \
               -d "{\"root\":\"/plugins\",\"files\":[\"$file\"]}"
             echo "Deleted $file"
           done
 
-      - name: Upload new plugin
-        run: |
-          echo "📤 Uploading plugin..."
+          # Upload new plugin
           UPLOAD_URL=$(curl -s \
-            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
+
           curl -s -X POST \
-            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             -F "files=@plugins/plugin.jar" \
             "$UPLOAD_URL&directory=%2Fplugins"
-          echo "✅ Plugin uploaded"
 
-      - name: Upload deployment manifest
+          echo "✅ Uploaded plugin to $SERVER_ID"
+
+      - name: Upload manifest
         run: |
-          echo "📄 Uploading manifest..."
+          SERVER_ID="${{ matrix.target.server_id }}"
+          PELICAN_URL="${{ matrix.target.pelican_url }}"
+          API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
+          API_KEY="${{ secrets[API_KEY_SECRET] }}"
+
           UPLOAD_URL=$(curl -s \
-            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
+
           cat > deployment-manifest.json <<EOF
           {
             "timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "commit":"${{ github.sha }}",
             "branch":"${{ github.ref_name }}",
             "repository":"${{ github.repository }}",
-            "plugin":"$PLUGIN_NAME",
+            "plugin":"${{ github.repository }}",
             "server_id":"$SERVER_ID",
             "pelican_url":"$PELICAN_URL"
           }
           EOF
+
           curl -s -X POST \
-            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             -F "files=@deployment-manifest.json" \
             "$UPLOAD_URL&directory=%2F"
-          echo "✅ Manifest uploaded"
+
+          echo "✅ Manifest uploaded for $SERVER_ID"

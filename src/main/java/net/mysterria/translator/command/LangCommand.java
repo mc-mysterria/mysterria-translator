@@ -34,7 +34,7 @@ public class LangCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("• ").color(NamedTextColor.AQUA)
                     .append(Component.text("Running ").color(NamedTextColor.WHITE))
                     .append(Component.text("MysterriaTranslator ").color(NamedTextColor.AQUA).decorate(TextDecoration.BOLD))
-                    .append(Component.text("v" + plugin.getDescription().getVersion()).color(NamedTextColor.AQUA))
+                    .append(Component.text("v. " + plugin.getDescription().getVersion()).color(NamedTextColor.AQUA))
                     .append(Component.text(" by ").color(NamedTextColor.WHITE))
                     .append(Component.text("Mysterria").color(NamedTextColor.AQUA)));
             sender.sendMessage(Component.text("   ").color(NamedTextColor.AQUA)
