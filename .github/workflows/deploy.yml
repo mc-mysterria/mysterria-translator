@@ -97,7 +97,7 @@ jobs:
           if [ -z "$PLUGIN_FILE" ]; then
             echo "❌ Plugin JAR not found"
             exit 1
-          }
+          fi
 
           mkdir -p plugins
           cp "$PLUGIN_FILE" plugins/
