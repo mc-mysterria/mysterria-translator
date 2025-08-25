@@ -17,6 +17,7 @@ jobs:
     outputs:
       targets: ${{ steps.config.outputs.targets }}
       plugin_name: ${{ steps.build_plugin.outputs.plugin_name }}
+      plugin_filename: ${{ steps.build_plugin.outputs.plugin_filename }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,19 +97,23 @@ jobs:
           if [ -z "$PLUGIN_FILE" ]; then
             echo "❌ Plugin JAR not found"
             exit 1
-          fi
+          }
 
           mkdir -p plugins
-          cp "$PLUGIN_FILE" plugins/plugin.jar
+          cp "$PLUGIN_FILE" plugins/
+          
           PLUGIN_NAME=$(grep '^name:' src/main/resources/plugin.yml | cut -d ' ' -f 2 | tr -d '\r')
+          PLUGIN_FILENAME=$(basename "$PLUGIN_FILE")
+
           echo "plugin_name=${PLUGIN_NAME}" >> $GITHUB_OUTPUT
-          echo "✅ Built plugin: $(basename "$PLUGIN_FILE")"
+          echo "plugin_filename=${PLUGIN_FILENAME}" >> $GITHUB_OUTPUT
+          echo "✅ Built plugin: $PLUGIN_FILENAME"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
           name: plugin
-          path: plugins/plugin.jar
+          path: plugins/
 
   deploy:
     needs: build
@@ -131,6 +136,7 @@ jobs:
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
           API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
           PLUGIN_NAME="${{ needs.build.outputs.plugin_name }}"
+          PLUGIN_FILENAME="${{ needs.build.outputs.plugin_filename }}"
 
           echo "📤 Deploying to $SERVER_ID ($PELICAN_URL)"
 
@@ -156,7 +162,7 @@ jobs:
 
           curl -X POST \
             -H "Authorization: Bearer $API_KEY" \
-            -F "files=@plugins/plugin.jar" \
+            -F "files=@plugins/$PLUGIN_FILENAME" \
             "$UPLOAD_URL&directory=%2Fplugins"
 
           echo "✅ Uploaded plugin to $SERVER_ID"
