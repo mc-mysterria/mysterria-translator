@@ -10,11 +10,14 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class LangCommand implements CommandExecutor {
+public class LangCommand implements CommandExecutor, TabCompleter {
 
     private final LangManager langManager;
     private final MysterriaTranslator plugin;
@@ -114,5 +117,10 @@ public class LangCommand implements CommandExecutor {
 
         sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "unknown_subcommand"));
         return true;
+    }
+
+    @Override
+    public @Nullable List<String> onTabComplete(@NotNull CommandSender commandSender, @NotNull Command command, @NotNull String s, @NotNull String @NotNull [] strings) {
+        return List.of("help", "reload", "set", "get", "list", "");
     }
 }
