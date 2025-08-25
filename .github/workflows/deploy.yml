@@ -125,6 +125,7 @@ jobs:
 
       - name: Deploy to server
         run: |
+          set -e
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
@@ -148,12 +149,12 @@ jobs:
           done
 
           # Upload new plugin
-          UPLOAD_URL=$(curl -s \
+          UPLOAD_URL=$(curl \
             -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
 
-          curl -s -X POST \
+          curl -X POST \
             -H "Authorization: Bearer $API_KEY" \
             -F "files=@plugins/plugin.jar" \
             "$UPLOAD_URL&directory=%2Fplugins"
@@ -162,12 +163,13 @@ jobs:
 
       - name: Upload manifest
         run: |
+          set -e
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
           API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
 
-          UPLOAD_URL=$(curl -s \
+          UPLOAD_URL=$(curl \
             -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
@@ -184,7 +186,7 @@ jobs:
           }
           EOF
 
-          curl -s -X POST \
+          curl -X POST \
             -H "Authorization: Bearer $API_KEY" \
             -F "files=@deployment-manifest.json" \
             "$UPLOAD_URL&directory=%2F"
