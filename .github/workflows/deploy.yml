@@ -4,13 +4,13 @@ on:
   push:
     branches: [ main, production ]
     paths:
-      - 'plugins/**'
       - 'src/**'
       - 'config/**'
       - 'worlds/**'
       - 'pom.xml'
       - 'build.gradle'
       - 'build.gradle.kts'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -e
           REPO_NAME="${{ github.repository }}"
-          # Use workflow_dispatch input if available, else default to production
+          ENV_NAME="${{ github.ref_name }}"
 
           echo "🔧 Loading configuration for $REPO_NAME ($ENV_NAME)"
 
@@ -77,69 +77,47 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Detect and build plugins
+      - name: Build plugin
         run: |
           echo "🔍 Detecting build system..."
-          FORCE_REBUILD=true
           if [ -f "pom.xml" ]; then
             echo "📦 Maven project"
-            echo "BUILD_SYSTEM=maven" >> $GITHUB_ENV
-            if [ "$FORCE_REBUILD" = "true" ]; then
-              mvn clean package -DskipTests
-            else
-              mvn package -DskipTests
-            fi
-            mkdir -p plugins-temp
-            find . -name "*.jar" -path "*/target/*" -not -path "*/original-*" -exec cp {} plugins-temp/ \;
+            mvn clean package -DskipTests
+            PLUGIN_FILE=$(find . -name "*.jar" -path "*/target/*" -not -name "original-*.jar" | head -n 1)
           elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
             echo "📦 Gradle project"
-            echo "BUILD_SYSTEM=gradle" >> $GITHUB_ENV
-            if [ -f "gradlew" ]; then
-              chmod +x gradlew
-              if [ "$FORCE_REBUILD" = "true" ]; then
-                ./gradlew clean build
-              else
-                ./gradlew build
-              fi
-            else
-              echo "❌ gradlew not found"
-              exit 1
-            fi
-            mkdir -p plugins-temp
-            find . -name "*.jar" -path "*/build/libs/*" -not -name "*-sources.jar" -not -name "*-javadoc.jar" -exec cp {} plugins-temp/ \;
+            chmod +x gradlew
+            ./gradlew clean build
+            PLUGIN_FILE=$(find . -name "*.jar" -path "*/build/libs/*" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -n 1)
           elif [ -d "plugins" ] && [ "$(ls -A plugins/*.jar 2>/dev/null)" ]; then
-            echo "📦 Pre-built plugins detected"
-            echo "BUILD_SYSTEM=prebuilt" >> $GITHUB_ENV
-            cp -r plugins plugins-temp
+            echo "📦 Pre-built plugin detected"
+            PLUGIN_FILE=$(ls plugins/*.jar | head -n 1)
           else
-            echo "❌ No build system or plugins found"
+            echo "❌ No plugin found"
             exit 1
           fi
+
+          if [ -z "$PLUGIN_FILE" ]; then
+            echo "❌ Plugin JAR not found"
+            exit 1
+          fi
+
           mkdir -p plugins
-          cp plugins-temp/* plugins/ 2>/dev/null || true
-          ls -la plugins/*.jar || echo "No plugins copied"
+          cp "$PLUGIN_FILE" plugins/plugin.jar
+          echo "PLUGIN_NAME=$(basename "$PLUGIN_FILE" .jar)" >> $GITHUB_ENV
+          echo "✅ Built plugin: $(basename "$PLUGIN_FILE")"
 
-      - name: Validate plugins
+      - name: Validate plugin
         run: |
-          echo "🔍 Validating plugins..."
-          PLUGIN_COUNT=0
-          PLUGIN_NAMES=()
-          for plugin in plugins/*.jar; do
-            [ -f "$plugin" ] || continue
-            NAME=$(basename "$plugin" .jar)
-            if jar tf "$plugin" >/dev/null 2>&1; then
-              echo "✅ $NAME valid"
-              PLUGIN_NAMES+=("$NAME")
-              PLUGIN_COUNT=$((PLUGIN_COUNT+1))
-            else
-              echo "❌ $NAME invalid jar"
-              exit 1
-            fi
-          done
-          echo "PLUGIN_COUNT=$PLUGIN_COUNT" >> $GITHUB_ENV
-          echo "PLUGIN_NAMES=$(IFS=,; echo "${PLUGIN_NAMES[*]}")" >> $GITHUB_ENV
+          echo "🔍 Validating plugin..."
+          if jar tf plugins/plugin.jar >/dev/null 2>&1; then
+            echo "✅ $(basename plugins/plugin.jar) is a valid jar"
+          else
+            echo "❌ Invalid jar file"
+            exit 1
+          fi
 
-      - name: Remove old plugins
+      - name: Remove old plugin
         run: |
           echo "🗑 Removing old plugins..."
           RESPONSE=$(curl -s \
@@ -155,21 +133,18 @@ jobs:
             echo "Deleted $file"
           done
 
-      - name: Upload new plugins
+      - name: Upload new plugin
         run: |
-          echo "📤 Uploading plugins..."
+          echo "📤 Uploading plugin..."
           UPLOAD_URL=$(curl -s \
             -H "Authorization: Bearer $PELICAN_API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
-          for plugin in plugins/*.jar; do
-            [ -f "$plugin" ] || continue
-            echo "Uploading $(basename $plugin)"
-            curl -s -X POST \
-              -H "Authorization: Bearer $PELICAN_API_KEY" \
-              -F "files=@$plugin" \
-              "$UPLOAD_URL&directory=%2Fplugins"
-          done
+          curl -s -X POST \
+            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -F "files=@plugins/plugin.jar" \
+            "$UPLOAD_URL&directory=%2Fplugins"
+          echo "✅ Plugin uploaded"
 
       - name: Upload deployment manifest
         run: |
@@ -178,19 +153,13 @@ jobs:
             -H "Authorization: Bearer $PELICAN_API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
             | jq -r '.attributes.url')
-          PLUGIN_NAMES="${PLUGIN_NAMES:-}"
-          if [ -n "$PLUGIN_NAMES" ]; then
-            PLUGIN_JSON=$(echo "$PLUGIN_NAMES" | awk -F, '{for(i=1;i<=NF;i++) printf "\"%s\"%s", $i, (i<NF?", ":"")}')
-          else
-            PLUGIN_JSON=""
-          fi
           cat > deployment-manifest.json <<EOF
           {
             "timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "commit":"${{ github.sha }}",
             "branch":"${{ github.ref_name }}",
             "repository":"${{ github.repository }}",
-            "plugins":[ $PLUGIN_JSON ],
+            "plugin":"$PLUGIN_NAME",
             "server_id":"$SERVER_ID",
             "pelican_url":"$PELICAN_URL"
           }
