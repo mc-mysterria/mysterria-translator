@@ -55,15 +55,19 @@ jobs:
             echo "❌ Server configuration file not found"
             exit 1
           fi
-
+          
           SERVER_DATA=$(jq --arg repo "$REPO_NAME" --arg env "$ENV_NAME" '
             if .[$repo] then
-              .[$repo] + (.[$repo].environments // {})[$env] // {}
+              (
+                .defaults // {}                                   # start with defaults
+                * (.[$repo] | del(.environments))                 # merge base repo config (without environments)
+                * ( .[$repo].environments[$env] // {} )           # merge env override if present
+              )
             else
               error("No configuration found for repository: " + $repo)
             end
           ' "$SERVER_CONFIG")
-
+          
           SERVER_ID=$(echo "$SERVER_DATA" | jq -r '.server_id // empty')
           PELICAN_URL=$(echo "$SERVER_DATA" | jq -r '.pelican_url // empty')
           BACKUP_ENABLED=$(echo "$SERVER_DATA" | jq -r '.backup_enabled // true')
