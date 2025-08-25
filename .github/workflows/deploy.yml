@@ -10,13 +10,6 @@ on:
       - 'pom.xml'
       - 'build.gradle'
       - 'build.gradle.kts'
-    paths:
-      - 'src/**'
-      - 'config/**'
-      - 'worlds/**'
-      - 'pom.xml'
-      - 'build.gradle'
-      - 'build.gradle.kts'
 
 jobs:
   test:
