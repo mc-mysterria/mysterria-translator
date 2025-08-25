@@ -10,6 +10,13 @@ on:
       - 'pom.xml'
       - 'build.gradle'
       - 'build.gradle.kts'
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'worlds/**'
+      - 'pom.xml'
+      - 'build.gradle'
+      - 'build.gradle.kts'
 
 jobs:
   test:
@@ -131,7 +138,7 @@ jobs:
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
-          API_KEY="${{ secrets[API_KEY_SECRET] }}"
+          API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
 
           echo "📤 Deploying to $SERVER_ID ($PELican_URL)"
 
@@ -167,7 +174,7 @@ jobs:
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
-          API_KEY="${{ secrets[API_KEY_SECRET] }}"
+          API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
 
           UPLOAD_URL=$(curl -s \
             -H "Authorization: Bearer $API_KEY" \
