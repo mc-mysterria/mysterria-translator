@@ -7,7 +7,7 @@ commands:
   languages:
     description: Main command of mtranslator
     usage: /<command> [help|set|get|list|reload]
-    aliases: [ lang, langs, iglang, iglangs, mtranslator ]
+    aliases: [ lang, translator, language ]
 permissions:
   mtranslator.admin:
     description: Total access to mtranslator commands

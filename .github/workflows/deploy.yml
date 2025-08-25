@@ -1,0 +1,194 @@
+name: deploy.yml
+on:
+  push:
+    branches: [ main, production ]
+    paths:
+      - 'plugins/**'
+      - 'src/**'
+      - 'config/**'
+      - 'worlds/**'
+      - 'pom.xml'
+      - 'build.gradle'
+      - 'build.gradle.kts'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      force_rebuild:
+        description: 'Force rebuild all plugins'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout deployment config
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/minecraft-deployment-config
+          token: ${{ secrets.CONFIG_REPO_TOKEN }}
+          path: .deployment-config
+
+      - name: Load deployment configuration
+        run: |
+          set -e
+          REPO_NAME="${{ github.repository }}"
+          ENV_NAME="${{ github.event.inputs.environment || 'production' }}"
+
+          echo "🔧 Loading configuration for $REPO_NAME ($ENV_NAME)"
+
+          SERVER_CONFIG=".deployment-config/servers.json"
+          if [ ! -f "$SERVER_CONFIG" ]; then
+            echo "❌ Server configuration file not found"
+            exit 1
+          fi
+
+          SERVER_DATA=$(jq --arg repo "$REPO_NAME" --arg env "$ENV_NAME" '
+            if .[$repo] then
+              .[$repo] + (.[$repo].environments // {})[$env] // {}
+            else
+              error("No configuration found for repository: " + $repo)
+            end
+          ' "$SERVER_CONFIG")
+
+          SERVER_ID=$(echo "$SERVER_DATA" | jq -r '.server_id // empty')
+          PELICAN_URL=$(echo "$SERVER_DATA" | jq -r '.pelican_url // empty')
+          BACKUP_ENABLED=$(echo "$SERVER_DATA" | jq -r '.backup_enabled // true')
+
+          if [ -z "$SERVER_ID" ] || [ -z "$PELICAN_URL" ]; then
+            echo "❌ server_id and pelican_url are required"
+            exit 1
+          fi
+
+          echo "SERVER_ID=$SERVER_ID" >> $GITHUB_ENV
+          echo "PELICAN_URL=$PELICAN_URL" >> $GITHUB_ENV
+          echo "BACKUP_ENABLED=$BACKUP_ENABLED" >> $GITHUB_ENV
+
+          # Inject API keys
+          echo "ULTRA_API_KEY=${{ secrets.ULTRA_API_KEY }}" >> $GITHUB_ENV
+          echo "PELICAN_API_KEY=${{ secrets.PELICAN_API_KEY }}" >> $GITHUB_ENV
+
+          echo "✅ Config loaded for server $SERVER_ID ($PELICAN_URL)"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Detect and build plugins
+        run: |
+          echo "🔍 Detecting build system..."
+          if [ -f "pom.xml" ]; then
+            echo "📦 Maven project"
+            echo "BUILD_SYSTEM=maven" >> $GITHUB_ENV
+            [ "${{ github.event.inputs.force_rebuild }}" = "true" ] && mvn clean package -DskipTests || mvn package -DskipTests
+            mkdir -p plugins-temp
+            find . -name "*.jar" -path "*/target/*" -not -path "*/original-*" -exec cp {} plugins-temp/ \;
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "📦 Gradle project"
+            echo "BUILD_SYSTEM=gradle" >> $GITHUB_ENV
+            chmod +x gradlew
+            [ "${{ github.event.inputs.force_rebuild }}" = "true" ] && ./gradlew clean build || ./gradlew build
+            mkdir -p plugins-temp
+            find . -name "*.jar" -path "*/build/libs/*" -not -name "*-sources.jar" -not -name "*-javadoc.jar" -exec cp {} plugins-temp/ \;
+          elif [ -d "plugins" ] && [ "$(ls -A plugins/*.jar 2>/dev/null)" ]; then
+            echo "📦 Pre-built plugins detected"
+            echo "BUILD_SYSTEM=prebuilt" >> $GITHUB_ENV
+            cp -r plugins plugins-temp
+          else
+            echo "❌ No build system or plugins found"
+            exit 1
+          fi
+          mkdir -p plugins
+          cp plugins-temp/* plugins/ 2>/dev/null || true
+          ls -la plugins/*.jar || echo "No plugins copied"
+
+      - name: Validate plugins
+        run: |
+          echo "🔍 Validating plugins..."
+          PLUGIN_COUNT=0
+          PLUGIN_NAMES=()
+          for plugin in plugins/*.jar; do
+            [ -f "$plugin" ] || continue
+            NAME=$(basename "$plugin" .jar)
+            if jar tf "$plugin" >/dev/null 2>&1; then
+              echo "✅ $NAME valid"
+              PLUGIN_NAMES+=("$NAME")
+              PLUGIN_COUNT=$((PLUGIN_COUNT+1))
+            else
+              echo "❌ $NAME invalid jar"
+              exit 1
+            fi
+          done
+          echo "PLUGIN_COUNT=$PLUGIN_COUNT" >> $GITHUB_ENV
+          echo "PLUGIN_NAMES=$(IFS=,; echo "${PLUGIN_NAMES[*]}")" >> $GITHUB_ENV
+
+      - name: Remove old plugins
+        run: |
+          echo "🗑 Removing old plugins..."
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/list?directory=%2Fplugins")
+          FILES=$(echo "$RESPONSE" | jq -r '.data[]? | select(.attributes.is_file and (.attributes.name | endswith(".jar"))) | .attributes.name')
+          for file in $FILES; do
+            curl -s -X POST \
+              -H "Authorization: Bearer $PELICAN_API_KEY" \
+              -H "Content-Type: application/json" \
+              "$PELICAN_URL/api/client/servers/$SERVER_ID/files/delete" \
+              -d "{\"root\":\"/plugins\",\"files\":[\"$file\"]}"
+            echo "Deleted $file"
+          done
+
+      - name: Upload new plugins
+        run: |
+          echo "📤 Uploading plugins..."
+          UPLOAD_URL=$(curl -s \
+            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
+            | jq -r '.attributes.url')
+          for plugin in plugins/*.jar; do
+            [ -f "$plugin" ] || continue
+            echo "Uploading $(basename $plugin)"
+            curl -s -X POST \
+              -H "Authorization: Bearer $PELICAN_API_KEY" \
+              -F "files=@$plugin" \
+              "$UPLOAD_URL&directory=%2Fplugins"
+          done
+
+      - name: Upload deployment manifest
+        run: |
+          echo "📄 Uploading manifest..."
+          UPLOAD_URL=$(curl -s \
+            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
+            | jq -r '.attributes.url')
+          cat > deployment-manifest.json <<EOF
+          {
+            "timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit":"${{ github.sha }}",
+            "branch":"${{ github.ref_name }}",
+            "repository":"${{ github.repository }}",
+            "plugins":[ $(echo "$PLUGIN_NAMES" | sed 's/,/", "/g' | sed 's/^/"/' | sed 's/$/"/') ],
+            "server_id":"$SERVER_ID",
+            "pelican_url":"$PELICAN_URL"
+          }
+          EOF
+          curl -s -X POST \
+            -H "Authorization: Bearer $PELICAN_API_KEY" \
+            -F "files=@deployment-manifest.json" \
+            "$UPLOAD_URL&directory=%2F"
+          echo "✅ Manifest uploaded"
