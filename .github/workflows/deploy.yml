@@ -12,16 +12,11 @@ on:
       - 'build.gradle.kts'
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Init step
-        run: echo "Workflow triggered successfully! Proceeding..."
-
   build:
     runs-on: ubuntu-latest
     outputs:
       targets: ${{ steps.config.outputs.targets }}
+      plugin_name: ${{ steps.build_plugin.outputs.plugin_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,7 +60,7 @@ jobs:
               ]
             else
               []
-            end
+            fi
           ' "$SERVER_CONFIG")
 
           echo "$TARGETS" | jq .
@@ -78,6 +73,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Build plugin
+        id: build_plugin
         run: |
           echo "🔍 Detecting build system..."
           if [ -f "pom.xml" ]; then
@@ -104,7 +100,8 @@ jobs:
 
           mkdir -p plugins
           cp "$PLUGIN_FILE" plugins/plugin.jar
-          echo "PLUGIN_NAME=$(basename "$PLUGIN_FILE" .jar)" >> $GITHUB_ENV
+          PLUGIN_NAME=$(grep '^name:' src/main/resources/plugin.yml | cut -d ' ' -f 2 | tr -d '\r')
+          echo "plugin_name=${PLUGIN_NAME}" >> $GITHUB_OUTPUT
           echo "✅ Built plugin: $(basename "$PLUGIN_FILE")"
 
       - name: Upload plugin artifact
@@ -132,14 +129,15 @@ jobs:
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
           API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
+          PLUGIN_NAME="${{ needs.build.outputs.plugin_name }}"
 
-          echo "📤 Deploying to $SERVER_ID ($PELican_URL)"
+          echo "📤 Deploying to $SERVER_ID ($PELICAN_URL)"
 
           # Remove old plugins
           RESPONSE=$(curl -s \
             -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/list?directory=%2Fplugins")
-          FILES=$(echo "$RESPONSE" | jq -r '.data[]? | select(.attributes.is_file and (.attributes.name | endswith(".jar"))) | .attributes.name')
+          FILES=$(echo "$RESPONSE" | jq -r --arg plugin_name "$PLUGIN_NAME" '.data[]? | select(.attributes.is_file and (.attributes.name | startswith($plugin_name)) and (.attributes.name | endswith(".jar"))) | .attributes.name')
           for file in $FILES; do
             curl -s -X POST \
               -H "Authorization: Bearer $API_KEY" \
