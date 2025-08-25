@@ -37,7 +37,7 @@ jobs:
           SERVER_CONFIG=".deployment-config/servers.json"
 
           if [ ! -f "$SERVER_CONFIG" ]; then
-            echo "❌ Server configuration file not found"
+            echo "⚠️ Server configuration file not found"
             exit 1
           fi
 
@@ -114,6 +114,40 @@ jobs:
         with:
           name: plugin
           path: plugins/
+
+      - name: Report build failure
+        if: failure()
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d '{
+                "embeds": [{
+                  "title": "🔨 Build Failed",
+                  "description": "Failed to build plugin for deployment",
+                  "color": 15158332,
+                  "fields": [
+                    {
+                      "name": "Repository",
+                      "value": "${{ github.repository }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Commit",
+                      "value": "[`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})",
+                      "inline": true
+                    }
+                  ],
+                  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                }]
+              }' \
+              "${{ secrets.DISCORD_WEBHOOK }}"
+          fi
 
   deploy:
     needs: build
@@ -198,3 +232,193 @@ jobs:
             "$UPLOAD_URL&directory=%2F"
 
           echo "✅ Manifest uploaded for $SERVER_ID"
+
+      - name: Report deployment success
+        if: success()
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d '{
+                "embeds": [{
+                  "title": "🚀 Deployment Successful",
+                  "description": "Plugin successfully deployed to server",
+                  "color": 3066993,
+                  "fields": [
+                    {
+                      "name": "Plugin",
+                      "value": "${{ needs.build.outputs.plugin_name }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Server",
+                      "value": "${{ matrix.target.name }} (${{ matrix.target.server_id }})",
+                      "inline": true
+                    },
+                    {
+                      "name": "Repository",
+                      "value": "${{ github.repository }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Commit",
+                      "value": "[`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})",
+                      "inline": true
+                    },
+                    {
+                      "name": "File",
+                      "value": "${{ needs.build.outputs.plugin_filename }}",
+                      "inline": true
+                    }
+                  ],
+                  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                }]
+              }' \
+              "${{ secrets.DISCORD_WEBHOOK }}"
+          fi
+
+      - name: Report deployment failure
+        if: failure()
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d '{
+                "embeds": [{
+                  "title": "❌ Deployment Failed",
+                  "description": "Failed to deploy plugin to server",
+                  "color": 15158332,
+                  "fields": [
+                    {
+                      "name": "Plugin",
+                      "value": "${{ needs.build.outputs.plugin_name }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Server",
+                      "value": "${{ matrix.target.name }} (${{ matrix.target.server_id }})",
+                      "inline": true
+                    },
+                    {
+                      "name": "Repository",
+                      "value": "${{ github.repository }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "inline": true
+                    },
+                    {
+                      "name": "Commit",
+                      "value": "[`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})",
+                      "inline": true
+                    }
+                  ],
+                  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                }]
+              }' \
+              "${{ secrets.DISCORD_WEBHOOK }}"
+          fi
+
+  deployment-summary:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Report deployment summary
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+            if [ "${{ needs.deploy.result }}" = "success" ]; then
+              TOTAL_TARGETS=$(echo '${{ needs.build.outputs.targets }}' | jq length)
+              curl -H "Content-Type: application/json" \
+                -X POST \
+                -d '{
+                  "embeds": [{
+                    "title": "✅ All Deployments Complete",
+                    "description": "Successfully deployed to all '$TOTAL_TARGETS' configured servers",
+                    "color": 3066993,
+                    "fields": [
+                      {
+                        "name": "Plugin",
+                        "value": "${{ needs.build.outputs.plugin_name }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Repository",
+                        "value": "${{ github.repository }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Branch",
+                        "value": "${{ github.ref_name }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Servers Deployed",
+                        "value": "'$TOTAL_TARGETS'",
+                        "inline": true
+                      },
+                      {
+                        "name": "Workflow",
+                        "value": "[View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})",
+                        "inline": true
+                      }
+                    ],
+                    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                  }]
+                }' \
+                "${{ secrets.DISCORD_WEBHOOK }}"
+            elif [ "${{ needs.build.result }}" = "failure" ]; then
+              echo "Build failed - notification already sent"
+            else
+              curl -H "Content-Type: application/json" \
+                -X POST \
+                -d '{
+                  "embeds": [{
+                    "title": "⚠️ Deployment Issues",
+                    "description": "Some deployments may have failed. Check the workflow for details.",
+                    "color": 16776960,
+                    "fields": [
+                      {
+                        "name": "Plugin",
+                        "value": "${{ needs.build.outputs.plugin_name }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Repository",
+                        "value": "${{ github.repository }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Branch",
+                        "value": "${{ github.ref_name }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Build Status",
+                        "value": "${{ needs.build.result }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Deploy Status",
+                        "value": "${{ needs.deploy.result }}",
+                        "inline": true
+                      },
+                      {
+                        "name": "Workflow",
+                        "value": "[View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})",
+                        "inline": true
+                      }
+                    ],
+                    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                  }]
+                }' \
+                "${{ secrets.DISCORD_WEBHOOK }}"
+            fi
+          fi
