@@ -125,7 +125,6 @@ jobs:
 
       - name: Deploy to server
         run: |
-          set -x
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
@@ -135,13 +134,9 @@ jobs:
           echo "📤 Deploying to $SERVER_ID ($PELICAN_URL)"
 
           # Remove old plugins
-          echo "Listing files in /plugins..."
           RESPONSE=$(curl -s \
             -H "Authorization: Bearer $API_KEY" \
             "$PELICAN_URL/api/client/servers/$SERVER_ID/files/list?directory=%2Fplugins")
-          echo "API Response for file list:"
-          echo "$RESPONSE"
-          
           FILES=$(echo "$RESPONSE" | jq -r --arg plugin_name "$PLUGIN_NAME" '.data[]? | select(.attributes.is_file and (.attributes.name | startswith($plugin_name)) and (.attributes.name | endswith(".jar"))) | .attributes.name')
           for file in $FILES; do
             curl -s -X POST \
@@ -153,14 +148,10 @@ jobs:
           done
 
           # Upload new plugin
-          echo "Getting upload URL..."
-          UPLOAD_URL_RESPONSE=$(curl -s \
+          UPLOAD_URL=$(curl -s \
             -H "Authorization: Bearer $API_KEY" \
-            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload")
-          echo "API Response for upload URL:"
-          echo "$UPLOAD_URL_RESPONSE"
-
-          UPLOAD_URL=$(echo "$UPLOAD_URL_RESPONSE" | jq -r '.attributes.url')
+            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
+            | jq -r '.attributes.url')
 
           curl -s -X POST \
             -H "Authorization: Bearer $API_KEY" \
@@ -171,20 +162,15 @@ jobs:
 
       - name: Upload manifest
         run: |
-          set -x
           SERVER_ID="${{ matrix.target.server_id }}"
           PELICAN_URL="${{ matrix.target.pelican_url }}"
           API_KEY_SECRET="${{ matrix.target.api_key_secret }}"
           API_KEY="${{ secrets[matrix.target.api_key_secret] }}"
 
-          echo "Getting upload URL for manifest..."
-          UPLOAD_URL_RESPONSE=$(curl -s \
+          UPLOAD_URL=$(curl -s \
             -H "Authorization: Bearer $API_KEY" \
-            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload")
-          echo "API Response for manifest upload URL:"
-          echo "$UPLOAD_URL_RESPONSE"
-          
-          UPLOAD_URL=$(echo "$UPLOAD_URL_RESPONSE" | jq -r '.attributes.url')
+            "$PELICAN_URL/api/client/servers/$SERVER_ID/files/upload" \
+            | jq -r '.attributes.url')
 
           cat > deployment-manifest.json <<EOF
           {
