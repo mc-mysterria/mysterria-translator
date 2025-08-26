@@ -4,7 +4,7 @@ author: 'Mysterria'
 main: net.mysterria.translator.MysterriaTranslator
 depend: [ PlaceholderAPI ]
 commands:
-  languages:
+  lang:
     description: Main command of mtranslator
     usage: /<command> [help|set|get|list|reload]
     aliases: [ translator, language ]
