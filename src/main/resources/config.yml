@@ -41,6 +41,43 @@ translation:
   # - "libretranslate": Uses LibreTranslate API service
   provider: "ollama"
 
+  # Global chat settings
+  globalChat:
+    # Enable global chat translation mode
+    # When enabled, only messages starting with the prefix will be translated
+    enabled: false
+
+    # Prefix that triggers global chat translation
+    # Messages starting with this symbol will be translated and broadcasted globally
+    prefix: "!"
+
+    # Remove the prefix from the translated message
+    # If true: "!Hello" becomes "Hello" in translation
+    # If false: "!Hello" stays "!Hello" in translation
+    removePrefix: true
+
+    # Global chat format (when using custom display mode)
+    # This overrides the regular customFormat for global chat messages
+    globalFormat: "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
+
+  # Range chat settings (for non-global messages when global chat is enabled)
+  rangeChat:
+    # Enable range-based translation for regular messages
+    # When true, regular messages (without global prefix) will be translated for nearby players
+    enabled: true
+
+    # Range in blocks for translating messages
+    # Players within this distance will receive translated messages
+    range: 100.0
+
+    # Include players in different worlds
+    # If false, only players in the same world will receive translations
+    crossWorld: false
+
+    # Range chat format (when using custom display mode)
+    # This overrides the regular customFormat for range chat messages
+    rangeFormat: "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
+
   # Ollama configuration
   ollama:
     url: "http://ollama:11434"

@@ -54,6 +54,22 @@ public class ChatListener implements Listener {
             return;
         }
 
+        // Check for global chat mode
+        if (isGlobalChatEnabled()) {
+            if (isGlobalChatMessage(message)) {
+                plugin.debug("Processing global chat message from " + sender.getName());
+                processGlobalChatMessage(event, sender, message);
+                return;
+            } else if (isRangeChatEnabled()) {
+                plugin.debug("Processing range chat message from " + sender.getName());
+                processRangeChatMessage(event, sender, message);
+                return;
+            } else {
+                plugin.debug("Message doesn't start with global chat prefix and range chat is disabled, skipping translation");
+                return; // Don't translate non-global messages when global chat is enabled but range chat is disabled
+            }
+        }
+
         processMessageTranslation(event, sender, message);
     }
 
@@ -393,6 +409,304 @@ public class ChatListener implements Listener {
                 .replace("{original_message}", result.getOriginalText())
                 .replace("{source_language}", result.getSourceLanguage())
                 .replace("{target_language}", result.getTargetLanguage());
+
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
+        }
+
+        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+
+        if (hoverText != null) {
+            component = component.hoverEvent(HoverEvent.showText(hoverText));
+        }
+
+        return component;
+    }
+
+    private boolean isGlobalChatEnabled() {
+        return plugin.getConfig().getBoolean("translation.globalChat.enabled", false);
+    }
+
+    private boolean isRangeChatEnabled() {
+        return plugin.getConfig().getBoolean("translation.rangeChat.enabled", true);
+    }
+
+    private boolean isGlobalChatMessage(String message) {
+        String prefix = plugin.getConfig().getString("translation.globalChat.prefix", "!");
+        return message.startsWith(prefix);
+    }
+
+    private String processGlobalChatPrefix(String message) {
+        String prefix = plugin.getConfig().getString("translation.globalChat.prefix", "!");
+        boolean removePrefix = plugin.getConfig().getBoolean("translation.globalChat.removePrefix", true);
+
+        if (removePrefix && message.startsWith(prefix)) {
+            return message.substring(prefix.length()).trim();
+        }
+        return message;
+    }
+
+    private void processGlobalChatMessage(AsyncChatEvent event, Player sender, String message) {
+        String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+        translatingMessages.add(messageKey);
+        plugin.debug("Added global chat message to translation queue: " + messageKey);
+
+        // Process the message (remove prefix if configured)
+        String processedMessage = processGlobalChatPrefix(message);
+        plugin.debug("Processed global chat message: '" + message + "' -> '" + processedMessage + "'");
+
+        // Cancel the original event to prevent ChatControl from processing it
+        event.setCancelled(true);
+        plugin.debug("Cancelled original chat event for global chat message");
+
+        // Get all online players for global broadcast
+        java.util.Set<Player> allPlayers = new java.util.HashSet<>(Bukkit.getOnlinePlayers());
+        java.util.Set<Player> translationNeeded = new java.util.HashSet<>();
+
+        // Determine which players need translation
+        for (Player player : allPlayers) {
+            if (!player.equals(sender)) {
+                if (needsTranslationForPlayer(processedMessage, player)) {
+                    translationNeeded.add(player);
+                    plugin.debug("Player " + player.getName() + " needs translation for global chat (locale: " + player.locale() + ")");
+                }
+            }
+        }
+
+        // Send original message to sender and players who don't need translation
+        Component originalMessage = createGlobalChatMessage(sender, processedMessage, false, null);
+        sender.sendMessage(originalMessage);
+        for (Player player : allPlayers) {
+            if (!player.equals(sender) && !translationNeeded.contains(player)) {
+                player.sendMessage(originalMessage);
+                plugin.debug("Sent original global chat message to " + player.getName() + " (no translation needed)");
+            }
+        }
+
+        // Translate for players who need it
+        if (!translationNeeded.isEmpty()) {
+            plugin.debug("Starting global chat translation for " + translationNeeded.size() + " players");
+            for (Player player : translationNeeded) {
+                plugin.debug("Requesting global chat translation for player: " + player.getName());
+                translationManager.translateForPlayer(processedMessage, player)
+                        .whenComplete((result, throwable) -> {
+                            translatingMessages.remove(messageKey);
+                            plugin.debug("Global chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+
+                            if (throwable != null) {
+                                plugin.debug("Global chat translation error for " + player.getName() + ": " + throwable.getMessage());
+                                Bukkit.getScheduler().runTask(plugin, () -> {
+                                    Component fallbackMessage = createGlobalChatMessage(sender, processedMessage, false, null);
+                                    player.sendMessage(fallbackMessage);
+                                    plugin.debug("Sent original global chat message to " + player.getName() + " due to translation error");
+                                });
+                                return;
+                            }
+
+                            plugin.debug("Global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component messageComponent = createGlobalChatMessage(sender, result.getTranslatedText(), true, result);
+                                player.sendMessage(messageComponent);
+                                plugin.debug("Sent translated global chat message to " + player.getName());
+                            });
+                        });
+            }
+        } else {
+            translatingMessages.remove(messageKey);
+            plugin.debug("No translation needed for global chat, removed from queue: " + messageKey);
+        }
+    }
+
+    private Component createGlobalChatMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
+        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+
+        if (displayMode.equals("custom")) {
+            // Use global format for custom mode
+            String format = plugin.getConfig().getString("translation.display.globalFormat",
+                    "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
+
+            if (isTranslated && result != null) {
+                boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+                Component hoverText = null;
+                if (showHover) {
+                    hoverText = Component.text("Original: " + result.getOriginalText())
+                            .color(NamedTextColor.GRAY)
+                            .append(Component.newline())
+                            .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
+                                    .color(NamedTextColor.DARK_GRAY));
+                }
+                return createCustomGlobalMessage(sender, message, format, hoverText);
+            } else {
+                // Original message format (no translation indicator for global)
+                String originalFormat = format.replace("&bГ", "&eG"); // Different color for original
+                return createCustomGlobalMessage(sender, message, originalFormat, null);
+            }
+        } else {
+            // Use regular formatting for other modes
+            if (isTranslated && result != null) {
+                return createTranslatedMessage(result, sender);
+            } else {
+                return createOriginalMessage(sender, message);
+            }
+        }
+    }
+
+    private Component createCustomGlobalMessage(Player sender, String message, String format, Component hoverText) {
+        String formatted = format
+                .replace("{player_name}", sender.getName())
+                .replace("{translated_message}", message)
+                .replace("{original_message}", message);
+
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
+        }
+
+        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+
+        if (hoverText != null) {
+            component = component.hoverEvent(HoverEvent.showText(hoverText));
+        }
+
+        return component;
+    }
+
+    private java.util.Set<Player> getPlayersInRange(Player sender) {
+        double range = plugin.getConfig().getDouble("translation.rangeChat.range", 100.0);
+        boolean crossWorld = plugin.getConfig().getBoolean("translation.rangeChat.crossWorld", false);
+        java.util.Set<Player> playersInRange = new java.util.HashSet<>();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.equals(sender)) continue;
+
+            // Check world constraint
+            if (!crossWorld && !player.getWorld().equals(sender.getWorld())) {
+                continue;
+            }
+
+            // Check distance
+            if (crossWorld || player.getWorld().equals(sender.getWorld())) {
+                double distance = crossWorld ?
+                    player.getLocation().distance(sender.getLocation()) :
+                    player.getLocation().distance(sender.getLocation());
+
+                if (distance <= range) {
+                    playersInRange.add(player);
+                    plugin.debug("Player " + player.getName() + " is in range (" + String.format("%.1f", distance) + " blocks)");
+                }
+            }
+        }
+
+        plugin.debug("Found " + playersInRange.size() + " players in range of " + sender.getName());
+        return playersInRange;
+    }
+
+    private void processRangeChatMessage(AsyncChatEvent event, Player sender, String message) {
+        String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+        translatingMessages.add(messageKey);
+        plugin.debug("Added range chat message to translation queue: " + messageKey);
+
+        // Get players in range
+        java.util.Set<Player> playersInRange = getPlayersInRange(sender);
+        java.util.Set<Player> translationNeeded = new java.util.HashSet<>();
+
+        // Determine which players in range need translation
+        for (Player player : playersInRange) {
+            if (needsTranslationForPlayer(message, player)) {
+                translationNeeded.add(player);
+                plugin.debug("Player " + player.getName() + " needs translation for range chat (locale: " + player.locale() + ")");
+            }
+        }
+
+        plugin.debug("Range chat - Original audience size: " + (playersInRange.size() - translationNeeded.size()) +
+                    ", Translation needed for: " + translationNeeded.size() + " players");
+
+        // Update event viewers to only include players who don't need translation
+        event.viewers().clear();
+        for (Player player : playersInRange) {
+            if (!translationNeeded.contains(player)) {
+                event.viewers().add(player);
+            }
+        }
+
+        // Translate for players who need it
+        if (!translationNeeded.isEmpty()) {
+            plugin.debug("Starting range chat translation for " + translationNeeded.size() + " players");
+            for (Player player : translationNeeded) {
+                plugin.debug("Requesting range chat translation for player: " + player.getName());
+                translationManager.translateForPlayer(message, player)
+                        .whenComplete((result, throwable) -> {
+                            translatingMessages.remove(messageKey);
+                            plugin.debug("Range chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+
+                            if (throwable != null) {
+                                plugin.debug("Range chat translation error for " + player.getName() + ": " + throwable.getMessage());
+                                Bukkit.getScheduler().runTask(plugin, () -> {
+                                    Component fallbackMessage = createRangeChatMessage(sender, message, false, null);
+                                    player.sendMessage(fallbackMessage);
+                                    plugin.debug("Sent original range chat message to " + player.getName() + " due to translation error");
+                                });
+                                return;
+                            }
+
+                            plugin.debug("Range chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component messageComponent = createRangeChatMessage(sender, result.getTranslatedText(), true, result);
+                                if (messageComponent != null) {
+                                    player.sendMessage(messageComponent);
+                                    plugin.debug("Sent translated range chat message to " + player.getName());
+                                } else {
+                                    Component originalMessage = createRangeChatMessage(sender, message, false, null);
+                                    player.sendMessage(originalMessage);
+                                    plugin.debug("Sent original range chat message to " + player.getName() + " (no translation needed)");
+                                }
+                            });
+                        });
+            }
+        } else {
+            translatingMessages.remove(messageKey);
+            plugin.debug("No translation needed for range chat, removed from queue: " + messageKey);
+        }
+    }
+
+    private Component createRangeChatMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
+        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+
+        if (displayMode.equals("custom")) {
+            // Use range format for custom mode
+            String format = plugin.getConfig().getString("translation.display.rangeFormat",
+                    "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
+
+            if (isTranslated && result != null) {
+                boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+                Component hoverText = null;
+                if (showHover) {
+                    hoverText = Component.text("Original: " + result.getOriginalText())
+                            .color(NamedTextColor.GRAY)
+                            .append(Component.newline())
+                            .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
+                                    .color(NamedTextColor.DARK_GRAY));
+                }
+                return createCustomRangeMessage(sender, message, format, hoverText);
+            } else {
+                // Original message format (different color for original range messages)
+                String originalFormat = format.replace("&eР", "&7R"); // Different color for original
+                return createCustomRangeMessage(sender, message, originalFormat, null);
+            }
+        } else {
+            // Use regular formatting for other modes
+            if (isTranslated && result != null) {
+                return createTranslatedMessage(result, sender);
+            } else {
+                return createOriginalMessage(sender, message);
+            }
+        }
+    }
+
+    private Component createCustomRangeMessage(Player sender, String message, String format, Component hoverText) {
+        String formatted = format
+                .replace("{player_name}", sender.getName())
+                .replace("{translated_message}", message)
+                .replace("{original_message}", message);
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
