@@ -65,5 +65,22 @@ translation:
   minMessageLength: 3
   maxRetries: 2
 
+  # Translation display configuration
+  display:
+    # Display mode: "separate", "replace", "compact"
+    # - "separate": Show original message first, then translated message (current behavior)
+    # - "replace": Replace original message with translated version for recipients
+    # - "compact": Show translation inline with hover for original
+    mode: "compact"
+
+    # Translation prefix for separate/compact modes
+    prefix: "[T]"
+
+    # Show translation indicator in hover tooltip
+    showHover: true
+
+    # Color for translation indicator (minecraft color codes or hex)
+    indicatorColor: "aqua"
+
   # Debug translation events
   debug: true

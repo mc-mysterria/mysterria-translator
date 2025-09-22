@@ -80,7 +80,14 @@ public class OllamaClient {
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
         return String.format(
-                "Translate this %s text to %s. Only return the translation, no explanations:\n\n%s",
+                "You are a professional translator specializing in gaming terminology and casual chat. " +
+                "Translate the following %s text to %s with these guidelines:\n" +
+                "- Preserve gaming terms, slang, and context\n" +
+                "- Keep the informal tone and style\n" +
+                "- Don't translate proper nouns, player names, or game-specific terms unless contextually necessary\n" +
+                "- For ambiguous words, choose meaning based on gaming/casual chat context\n" +
+                "- Return ONLY the translated text, no explanations or quotation marks\n\n" +
+                "Text to translate: %s",
                 fromLang, toLang, text
         );
     }

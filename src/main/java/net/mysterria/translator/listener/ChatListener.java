@@ -228,32 +228,65 @@ public class ChatListener implements Listener {
             return null;
         }
 
-        String prefix = isPrivate ? "[PM] " : "";
-        Component hoverText = Component.text("Original: " + result.getOriginalText())
-                .color(NamedTextColor.GRAY)
-                .append(Component.newline())
-                .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                        .color(NamedTextColor.DARK_GRAY));
+        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String prefix = plugin.getConfig().getString("translation.display.prefix", "[T]");
+        boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+        String indicatorColor = plugin.getConfig().getString("translation.display.indicatorColor", "aqua");
 
-        Component translationIndicator = Component.text("[T] ")
-                .color(NamedTextColor.AQUA)
-                .hoverEvent(HoverEvent.showText(Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+        NamedTextColor color = parseColor(indicatorColor);
+
+        Component hoverText = null;
+        if (showHover) {
+            hoverText = Component.text("Original: " + result.getOriginalText())
+                    .color(NamedTextColor.GRAY)
+                    .append(Component.newline())
+                    .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
+                            .color(NamedTextColor.DARK_GRAY));
+        }
+
+        String pmPrefix = isPrivate ? "[PM] " : "";
+        NamedTextColor baseColor = isPrivate ? NamedTextColor.LIGHT_PURPLE : NamedTextColor.WHITE;
+        String senderFormat = isPrivate ? sender.getName() + ": " : "<" + sender.getName() + "> ";
 
         Component messageContent = Component.text(result.getTranslatedText())
-                .color(NamedTextColor.WHITE)
-                .hoverEvent(HoverEvent.showText(hoverText));
+                .color(NamedTextColor.WHITE);
+        if (showHover && hoverText != null) {
+            messageContent = messageContent.hoverEvent(HoverEvent.showText(hoverText));
+        }
 
-        if (isPrivate) {
-            return Component.text(prefix)
-                    .color(NamedTextColor.LIGHT_PURPLE)
-                    .append(Component.text(sender.getName() + ": ").color(NamedTextColor.LIGHT_PURPLE))
-                    .append(translationIndicator)
-                    .append(messageContent);
-        } else {
-            return Component.text("<" + sender.getName() + "> ")
-                    .color(NamedTextColor.WHITE)
-                    .append(translationIndicator)
-                    .append(messageContent);
+        switch (displayMode.toLowerCase()) {
+            case "replace":
+                // Show only translated text without indicator
+                return Component.text(pmPrefix + senderFormat)
+                        .color(baseColor)
+                        .append(messageContent);
+
+            case "separate":
+                // Separate message with indicator
+                Component translationIndicator = Component.text(prefix + " ")
+                        .color(color);
+                if (showHover) {
+                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(
+                            Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+                }
+                return Component.text(pmPrefix + senderFormat)
+                        .color(baseColor)
+                        .append(translationIndicator)
+                        .append(messageContent);
+
+            case "compact":
+            default:
+                // Compact mode with small indicator
+                Component indicator = Component.text("ᵀ ")
+                        .color(color);
+                if (showHover) {
+                    indicator = indicator.hoverEvent(HoverEvent.showText(
+                            Component.text("Translated message").color(NamedTextColor.GRAY)));
+                }
+                return Component.text(pmPrefix + senderFormat)
+                        .color(baseColor)
+                        .append(indicator)
+                        .append(messageContent);
         }
     }
 
@@ -262,22 +295,76 @@ public class ChatListener implements Listener {
             return null;
         }
 
-        Component hoverText = Component.text("Original: " + result.getOriginalText())
-                .color(NamedTextColor.GRAY)
-                .append(Component.newline())
-                .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                        .color(NamedTextColor.DARK_GRAY));
+        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String prefix = plugin.getConfig().getString("translation.display.prefix", "[T]");
+        boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+        String indicatorColor = plugin.getConfig().getString("translation.display.indicatorColor", "aqua");
 
-        Component translationIndicator = Component.text("[T] ")
-                .color(NamedTextColor.AQUA)
-                .hoverEvent(HoverEvent.showText(Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+        NamedTextColor color = parseColor(indicatorColor);
 
-        return Component.text("<" + sender.getName() + "> ")
-                .color(NamedTextColor.WHITE)
-                .append(translationIndicator)
-                .append(Component.text(result.getTranslatedText())
+        Component hoverText = null;
+        if (showHover) {
+            hoverText = Component.text("Original: " + result.getOriginalText())
+                    .color(NamedTextColor.GRAY)
+                    .append(Component.newline())
+                    .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
+                            .color(NamedTextColor.DARK_GRAY));
+        }
+
+        switch (displayMode.toLowerCase()) {
+            case "replace":
+                // Show only translated text without indicator
+                Component translatedText = Component.text(result.getTranslatedText())
+                        .color(NamedTextColor.WHITE);
+                if (showHover && hoverText != null) {
+                    translatedText = translatedText.hoverEvent(HoverEvent.showText(hoverText));
+                }
+                return Component.text("<" + sender.getName() + "> ")
                         .color(NamedTextColor.WHITE)
-                        .hoverEvent(HoverEvent.showText(hoverText)));
+                        .append(translatedText);
+
+            case "separate":
+                // Current behavior - separate message with indicator
+                Component translationIndicator = Component.text(prefix + " ")
+                        .color(color);
+                if (showHover) {
+                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(
+                            Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+                }
+                return Component.text("<" + sender.getName() + "> ")
+                        .color(NamedTextColor.WHITE)
+                        .append(translationIndicator)
+                        .append(Component.text(result.getTranslatedText())
+                                .color(NamedTextColor.WHITE)
+                                .hoverEvent(showHover ? HoverEvent.showText(hoverText) : null));
+
+            case "compact":
+            default:
+                // Compact mode - show translation with small indicator
+                Component indicator = Component.text("ᵀ ")
+                        .color(color);
+                if (showHover) {
+                    indicator = indicator.hoverEvent(HoverEvent.showText(
+                            Component.text("Translated message").color(NamedTextColor.GRAY)));
+                }
+                Component message = Component.text(result.getTranslatedText())
+                        .color(NamedTextColor.WHITE);
+                if (showHover && hoverText != null) {
+                    message = message.hoverEvent(HoverEvent.showText(hoverText));
+                }
+                return Component.text("<" + sender.getName() + "> ")
+                        .color(NamedTextColor.WHITE)
+                        .append(indicator)
+                        .append(message);
+        }
+    }
+
+    private NamedTextColor parseColor(String colorString) {
+        try {
+            return NamedTextColor.NAMES.value(colorString.toLowerCase());
+        } catch (Exception e) {
+            return NamedTextColor.AQUA; // Default fallback
+        }
     }
 
     private Component createOriginalMessage(Player sender, String message) {
