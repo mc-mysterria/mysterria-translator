@@ -17,13 +17,15 @@ public class OllamaClient {
     private final HttpClient httpClient;
     private final String baseUrl;
     private final String model;
+    private final String apiKey;
     private final Gson gson;
     private final MysterriaTranslator plugin;
 
-    public OllamaClient(MysterriaTranslator plugin, String baseUrl, String model) {
+    public OllamaClient(MysterriaTranslator plugin, String baseUrl, String model, String apiKey) {
         this.plugin = plugin;
         this.baseUrl = baseUrl;
         this.model = model;
+        this.apiKey = apiKey;
         this.gson = new Gson();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -52,12 +54,17 @@ public class OllamaClient {
         request.addProperty("stream", false);
         request.add("options", options);
 
-        HttpRequest httpRequest = HttpRequest.newBuilder()
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/generate"))
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofSeconds(10))
-                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)));
+
+        if (apiKey != null && !apiKey.isEmpty()) {
+            requestBuilder.header("Authorization", "Bearer " + apiKey);
+        }
+
+        HttpRequest httpRequest = requestBuilder.build();
 
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
@@ -89,12 +96,16 @@ public class OllamaClient {
     public CompletableFuture<Boolean> isAvailable() {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                HttpRequest request = HttpRequest.newBuilder()
+                HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                         .uri(URI.create(baseUrl + "/api/tags"))
                         .timeout(Duration.ofSeconds(3))
-                        .GET()
-                        .build();
+                        .GET();
 
+                if (apiKey != null && !apiKey.isEmpty()) {
+                    requestBuilder.header("Authorization", "Bearer " + apiKey);
+                }
+
+                HttpRequest request = requestBuilder.build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 return response.statusCode() == 200;
             } catch (Exception e) {

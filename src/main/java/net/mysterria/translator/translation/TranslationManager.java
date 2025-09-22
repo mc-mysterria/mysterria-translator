@@ -2,6 +2,7 @@ package net.mysterria.translator.translation;
 
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.ollama.OllamaClient;
+import net.mysterria.translator.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.entity.Player;
 
@@ -15,9 +16,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TranslationManager {
-    
+
     private final MysterriaTranslator plugin;
     private final OllamaClient ollamaClient;
+    private final LibreTranslateClient libreTranslateClient;
+    private final String provider;
     private final ScheduledExecutorService scheduler;
     
     private final Map<String, CachedTranslation> translationCache;
@@ -29,9 +32,11 @@ public class TranslationManager {
     private final int minMessageLength;
     private final int maxRetries;
     
-    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient) {
+    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient) {
         this.plugin = plugin;
         this.ollamaClient = ollamaClient;
+        this.libreTranslateClient = libreTranslateClient;
+        this.provider = plugin.getConfig().getString("translation.provider", "ollama");
         this.scheduler = Executors.newScheduledThreadPool(2);
         
         this.translationCache = new ConcurrentHashMap<>();
@@ -96,19 +101,26 @@ public class TranslationManager {
     }
     
     private CompletableFuture<String> translateWithRetry(String message, String fromLang, String toLang, int attempt) {
-        return ollamaClient.translateAsync(message, fromLang, toLang)
-                .exceptionally(throwable -> {
-                    plugin.debug("Translation attempt " + (attempt + 1) + " failed: " + throwable.getMessage());
-                    if (attempt < maxRetries) {
-                        try {
-                            Thread.sleep(1000 * (attempt + 1));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        return translateWithRetry(message, fromLang, toLang, attempt + 1).join();
-                    }
-                    return null;
-                });
+        CompletableFuture<String> translationFuture;
+
+        if ("libretranslate".equalsIgnoreCase(provider)) {
+            translationFuture = libreTranslateClient.translateAsync(message, fromLang, toLang);
+        } else {
+            translationFuture = ollamaClient.translateAsync(message, fromLang, toLang);
+        }
+
+        return translationFuture.exceptionally(throwable -> {
+            plugin.debug("Translation attempt " + (attempt + 1) + " failed with " + provider + ": " + throwable.getMessage());
+            if (attempt < maxRetries) {
+                try {
+                    Thread.sleep(1000 * (attempt + 1));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return translateWithRetry(message, fromLang, toLang, attempt + 1).join();
+            }
+            return null;
+        });
     }
     
     private boolean canPlayerTranslate(UUID playerId) {

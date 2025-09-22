@@ -35,10 +35,24 @@ translation:
   # Enable/disable automatic translation
   enabled: true
 
+  # Translation provider: "ollama" or "libretranslate"
+  # Switch between providers by changing this value
+  # - "ollama": Uses local Ollama instance (AI models)
+  # - "libretranslate": Uses LibreTranslate API service
+  provider: "ollama"
+
   # Ollama configuration
   ollama:
     url: "http://ollama:11434"
     model: "qwen2.5:3b"  # Recommended: qwen2.5:3b or gemma2:2b
+    apiKey: ""  # Optional: Bearer token for authenticated Ollama instances
+
+  # LibreTranslate configuration
+  libretranslate:
+    url: "https://libre.mysterria.net/translate"
+    apiKey: "your-api-key-here"
+    alternatives: 3  # Number of alternative translations to request
+    format: "text"   # Format: "text" or "html"
 
   # Cache settings
   cacheExpirySeconds: 30
