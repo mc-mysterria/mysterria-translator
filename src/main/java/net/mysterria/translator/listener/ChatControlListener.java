@@ -32,7 +32,7 @@ public class ChatControlListener implements Listener {
         this.translatingMessages = ConcurrentHashMap.newKeySet();
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler
     public void onChannelPostChat(ChannelPostChatEvent event) {
         if (!plugin.getConfig().getBoolean("translation.enabled", true)) {
             plugin.debug("Translation is disabled, skipping ChatControl event");
