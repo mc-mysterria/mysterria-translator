@@ -26,18 +26,24 @@ public class ChatListener implements Listener {
     private final MysterriaTranslator plugin;
     private final TranslationManager translationManager;
     private final Set<String> translatingMessages;
+    private final java.util.Map<java.util.UUID, java.util.UUID> lastMessagePartners;
 
     private static final Set<String> PRIVATE_MESSAGE_COMMANDS = Set.of(
-            "msg", "tell", "w", "whisper", "message", "pm", "reply", "r"
+            "msg", "tell", "w", "whisper", "message", "pm"
+    );
+
+    private static final Set<String> REPLY_COMMANDS = Set.of(
+            "reply", "r"
     );
 
     public ChatListener(MysterriaTranslator plugin, TranslationManager translationManager) {
         this.plugin = plugin;
         this.translationManager = translationManager;
         this.translatingMessages = ConcurrentHashMap.newKeySet();
+        this.lastMessagePartners = new ConcurrentHashMap<>();
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onAsyncChat(AsyncChatEvent event) {
         if (!plugin.getConfig().getBoolean("translation.enabled", true)) {
             plugin.debug("Translation is disabled, skipping chat event");
@@ -51,6 +57,21 @@ public class ChatListener implements Listener {
         String messageKey = sender.getUniqueId() + ":" + message.hashCode();
         if (translatingMessages.contains(messageKey)) {
             plugin.debug("Message already being translated, skipping: " + messageKey);
+            return;
+        }
+
+        // Check if event was already cancelled (e.g., by ChatControl)
+        if (event.isCancelled()) {
+            plugin.debug("Chat event was cancelled by another plugin, checking for global chat processing");
+
+            // Check for global chat mode
+            if (isGlobalChatEnabled() && isGlobalChatMessage(message)) {
+                plugin.debug("Processing cancelled global chat message from " + sender.getName());
+                processGlobalChatMessageCancelled(sender, message);
+                return;
+            }
+
+            plugin.debug("Event cancelled but not a global chat message, skipping");
             return;
         }
 
@@ -73,7 +94,7 @@ public class ChatListener implements Listener {
         processMessageTranslation(event, sender, message);
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     public void onPrivateMessage(PlayerCommandPreprocessEvent event) {
         if (!plugin.getConfig().getBoolean("translation.enabled", true)) {
             plugin.debug("Translation is disabled, skipping private message");
@@ -81,36 +102,67 @@ public class ChatListener implements Listener {
         }
 
         String[] args = event.getMessage().substring(1).split(" ");
-        if (args.length < 3) {
+        if (args.length < 2) {
             plugin.debug("Private message command has insufficient arguments: " + args.length);
             return;
         }
 
         String command = args[0].toLowerCase();
-        if (!PRIVATE_MESSAGE_COMMANDS.contains(command)) {
-            plugin.debug("Command '" + command + "' is not a private message command");
-            return;
-        }
-
         Player sender = event.getPlayer();
-        Player target = Bukkit.getPlayer(args[1]);
-        if (target == null) {
-            plugin.debug("Target player '" + args[1] + "' not found for private message");
+
+        // Handle regular private message commands (/msg, /tell, etc.)
+        if (PRIVATE_MESSAGE_COMMANDS.contains(command)) {
+            if (args.length < 3) {
+                plugin.debug("Private message command has insufficient arguments for target: " + args.length);
+                return;
+            }
+
+            Player target = Bukkit.getPlayer(args[1]);
+            if (target == null) {
+                plugin.debug("Target player '" + args[1] + "' not found for private message");
+                return;
+            }
+
+            String message = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
+            plugin.debug("Processing private message from " + sender.getName() + " to " + target.getName() + ": " + message);
+
+            // Track last message partners for both sender and target
+            lastMessagePartners.put(sender.getUniqueId(), target.getUniqueId());
+            lastMessagePartners.put(target.getUniqueId(), sender.getUniqueId());
+
+            translatePrivateMessage(sender, target, message);
             return;
         }
 
-        String message = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
-        plugin.debug("Processing private message from " + sender.getName() + " to " + target.getName() + ": " + message);
+        // Handle reply commands (/r, /reply)
+        if (REPLY_COMMANDS.contains(command)) {
+            plugin.debug("Detected reply command from " + sender.getName());
 
-        translatePrivateMessage(sender, target, message);
-    }
-
-    private void translateForOtherPlayers(Player sender, String message, java.util.Collection<? extends net.kyori.adventure.audience.Audience> viewers) {
-        for (net.kyori.adventure.audience.Audience viewer : viewers) {
-            if (viewer instanceof Player player && !player.equals(sender)) {
-                translateAndSendMessage(sender, player, message, false);
+            // Get the last message partner for this player
+            java.util.UUID targetUUID = lastMessagePartners.get(sender.getUniqueId());
+            if (targetUUID == null) {
+                plugin.debug("No last message partner found for " + sender.getName());
+                return;
             }
+
+            Player target = Bukkit.getPlayer(targetUUID);
+            if (target == null) {
+                plugin.debug("Last message partner for " + sender.getName() + " is no longer online");
+                return;
+            }
+
+            String message = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
+            plugin.debug("Processing reply from " + sender.getName() + " to " + target.getName() + ": " + message);
+
+            // Update last message partners (reply refreshes the conversation)
+            lastMessagePartners.put(sender.getUniqueId(), target.getUniqueId());
+            lastMessagePartners.put(target.getUniqueId(), sender.getUniqueId());
+
+            translatePrivateMessage(sender, target, message);
+            return;
         }
+
+        plugin.debug("Command '" + command + "' is not a private message command");
     }
 
     private void processMessageTranslation(AsyncChatEvent event, Player sender, String message) {
@@ -446,24 +498,70 @@ public class ChatListener implements Listener {
         return message;
     }
 
+    private void processGlobalChatMessageCancelled(Player sender, String message) {
+        String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+        translatingMessages.add(messageKey);
+        plugin.debug("Added cancelled global chat message to translation queue: " + messageKey);
+
+        String processedMessage = processGlobalChatPrefix(message);
+        plugin.debug("Processed cancelled global chat message: '" + message + "' -> '" + processedMessage + "'");
+
+        java.util.Set<Player> allPlayers = new java.util.HashSet<>(Bukkit.getOnlinePlayers());
+        java.util.Set<Player> translationNeeded = new java.util.HashSet<>();
+
+        for (Player player : allPlayers) {
+            if (!player.equals(sender)) {
+                if (needsTranslationForPlayer(processedMessage, player)) {
+                    translationNeeded.add(player);
+                    plugin.debug("Player " + player.getName() + " needs translation for cancelled global chat (locale: " + player.locale() + ")");
+                }
+            }
+        }
+
+        if (!translationNeeded.isEmpty()) {
+            plugin.debug("Starting cancelled global chat translation for " + translationNeeded.size() + " players");
+            for (Player player : translationNeeded) {
+                plugin.debug("Requesting cancelled global chat translation for player: " + player.getName());
+                translationManager.translateForPlayer(processedMessage, player)
+                        .whenComplete((result, throwable) -> {
+                            translatingMessages.remove(messageKey);
+                            plugin.debug("Cancelled global chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+
+                            if (throwable != null) {
+                                plugin.debug("Cancelled global chat translation error for " + player.getName() + ": " + throwable.getMessage());
+                                return;
+                            }
+
+                            plugin.debug("Cancelled global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                            if (result.wasTranslated()) {
+                                Bukkit.getScheduler().runTask(plugin, () -> {
+                                    Component messageComponent = createGlobalChatMessage(sender, result.getTranslatedText(), true, result);
+                                    player.sendMessage(messageComponent);
+                                    plugin.debug("Sent translated cancelled global chat message to " + player.getName());
+                                });
+                            }
+                        });
+            }
+        } else {
+            translatingMessages.remove(messageKey);
+            plugin.debug("No translation needed for cancelled global chat, removed from queue: " + messageKey);
+        }
+    }
+
     private void processGlobalChatMessage(AsyncChatEvent event, Player sender, String message) {
         String messageKey = sender.getUniqueId() + ":" + message.hashCode();
         translatingMessages.add(messageKey);
         plugin.debug("Added global chat message to translation queue: " + messageKey);
 
-        // Process the message (remove prefix if configured)
         String processedMessage = processGlobalChatPrefix(message);
         plugin.debug("Processed global chat message: '" + message + "' -> '" + processedMessage + "'");
 
-        // Cancel the original event to prevent ChatControl from processing it
         event.setCancelled(true);
         plugin.debug("Cancelled original chat event for global chat message");
 
-        // Get all online players for global broadcast
         java.util.Set<Player> allPlayers = new java.util.HashSet<>(Bukkit.getOnlinePlayers());
         java.util.Set<Player> translationNeeded = new java.util.HashSet<>();
 
-        // Determine which players need translation
         for (Player player : allPlayers) {
             if (!player.equals(sender)) {
                 if (needsTranslationForPlayer(processedMessage, player)) {
@@ -473,7 +571,6 @@ public class ChatListener implements Listener {
             }
         }
 
-        // Send original message to sender and players who don't need translation
         Component originalMessage = createGlobalChatMessage(sender, processedMessage, false, null);
         sender.sendMessage(originalMessage);
         for (Player player : allPlayers) {
@@ -483,7 +580,6 @@ public class ChatListener implements Listener {
             }
         }
 
-        // Translate for players who need it
         if (!translationNeeded.isEmpty()) {
             plugin.debug("Starting global chat translation for " + translationNeeded.size() + " players");
             for (Player player : translationNeeded) {
@@ -521,8 +617,7 @@ public class ChatListener implements Listener {
         String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
-            // Use global format for custom mode
-            String format = plugin.getConfig().getString("translation.display.globalFormat",
+            String format = plugin.getConfig().getString("translation.globalChat.globalFormat",
                     "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
 
             if (isTranslated && result != null) {
@@ -673,7 +768,7 @@ public class ChatListener implements Listener {
 
         if (displayMode.equals("custom")) {
             // Use range format for custom mode
-            String format = plugin.getConfig().getString("translation.display.rangeFormat",
+            String format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
                     "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
 
             if (isTranslated && result != null) {

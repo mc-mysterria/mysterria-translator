@@ -4,7 +4,7 @@
 #   %lang_player_(nick)%   - Shows the specified player's language
 
 # Enable debug mode for more detailed logs.
-debug: false
+debug: true
 
 # Default language for the plugin.
 # If a translation is not found in the player's language, this language will be used as fallback.
@@ -45,7 +45,7 @@ translation:
   globalChat:
     # Enable global chat translation mode
     # When enabled, only messages starting with the prefix will be translated
-    enabled: false
+    enabled: true
 
     # Prefix that triggers global chat translation
     # Messages starting with this symbol will be translated and broadcasted globally
@@ -80,8 +80,8 @@ translation:
 
   # Ollama configuration
   ollama:
-    url: "http://ollama:11434"
-    model: "qwen2.5:3b"  # Recommended: qwen2.5:3b or gemma2:2b
+    url: "https://ollama.mysterria.net"
+    model: "gemma2:2b"  # Recommended: qwen2.5:3b or gemma2:2b
     apiKey: ""  # Optional: Bearer token for authenticated Ollama instances
 
   # LibreTranslate configuration
@@ -109,7 +109,7 @@ translation:
     # - "replace": Replace original message with translated version for recipients
     # - "compact": Show translation inline with hover for original
     # - "custom": Use custom format with PlaceholderAPI support
-    mode: "compact"
+    mode: "custom"
 
     # Translation prefix for separate/compact modes
     prefix: "[T]"
