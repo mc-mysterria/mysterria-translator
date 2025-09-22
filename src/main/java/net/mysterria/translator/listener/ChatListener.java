@@ -1,9 +1,11 @@
 package net.mysterria.translator.listener;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
+import me.clip.placeholderapi.PlaceholderAPI;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.translation.TranslationManager;
@@ -274,6 +276,12 @@ public class ChatListener implements Listener {
                         .append(translationIndicator)
                         .append(messageContent);
 
+            case "custom":
+                // Custom format with PlaceholderAPI support for private messages
+                String customFormat = plugin.getConfig().getString("translation.display.customFormat",
+                        "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
+                return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
+
             case "compact":
             default:
                 // Compact mode with small indicator
@@ -338,6 +346,12 @@ public class ChatListener implements Listener {
                                 .color(NamedTextColor.WHITE)
                                 .hoverEvent(showHover ? HoverEvent.showText(hoverText) : null));
 
+            case "custom":
+                // Custom format with PlaceholderAPI support
+                String customFormat = plugin.getConfig().getString("translation.display.customFormat",
+                        "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
+                return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
+
             case "compact":
             default:
                 // Compact mode - show translation with small indicator
@@ -370,5 +384,26 @@ public class ChatListener implements Listener {
     private Component createOriginalMessage(Player sender, String message) {
         return Component.text("<" + sender.getName() + "> " + message)
                 .color(NamedTextColor.WHITE);
+    }
+
+    private Component createCustomFormattedMessage(TranslationResult result, Player sender, String customFormat, Component hoverText) {
+        String formatted = customFormat
+                .replace("{player_name}", sender.getName())
+                .replace("{translated_message}", result.getTranslatedText())
+                .replace("{original_message}", result.getOriginalText())
+                .replace("{source_language}", result.getSourceLanguage())
+                .replace("{target_language}", result.getTargetLanguage());
+
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
+        }
+
+        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+
+        if (hoverText != null) {
+            component = component.hoverEvent(HoverEvent.showText(hoverText));
+        }
+
+        return component;
     }
 }

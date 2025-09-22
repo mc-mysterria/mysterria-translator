@@ -67,10 +67,11 @@ translation:
 
   # Translation display configuration
   display:
-    # Display mode: "separate", "replace", "compact"
+    # Display mode: "separate", "replace", "compact", "custom"
     # - "separate": Show original message first, then translated message (current behavior)
     # - "replace": Replace original message with translated version for recipients
     # - "compact": Show translation inline with hover for original
+    # - "custom": Use custom format with PlaceholderAPI support
     mode: "compact"
 
     # Translation prefix for separate/compact modes
@@ -81,6 +82,16 @@ translation:
 
     # Color for translation indicator (minecraft color codes or hex)
     indicatorColor: "aqua"
+
+    # Custom format for translated messages (when mode is "custom")
+    # Available placeholders:
+    # - {player_name}: Player's name
+    # - {translated_message}: The translated message
+    # - {original_message}: The original message
+    # - {source_language}: Source language (e.g., "Ukrainian")
+    # - {target_language}: Target language (e.g., "English")
+    # - Any PlaceholderAPI placeholder (e.g., {luckperms_prefix}, {player_chat_color})
+    customFormat: "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
 
   # Debug translation events
   debug: true
