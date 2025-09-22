@@ -32,7 +32,7 @@ public class ChatControlListener implements Listener {
         this.translatingMessages = ConcurrentHashMap.newKeySet();
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.HIGH)
     public void onChannelPostChat(ChannelPostChatEvent event) {
         if (!plugin.getConfig().getBoolean("translation.enabled", true)) {
             plugin.debug("Translation is disabled, skipping ChatControl event");
@@ -58,16 +58,21 @@ public class ChatControlListener implements Listener {
 
         // Check if this is a global channel
         boolean isGlobalChannel = isGlobalChannel(channelName);
-        boolean isRangeChannel = !isGlobalChannel; // Assume non-global is range-based
 
-        plugin.debug("Channel type - Global: " + isGlobalChannel + ", Range: " + isRangeChannel);
+        plugin.debug("Channel type - Global: " + isGlobalChannel + ", Range: " + !isGlobalChannel);
 
-        // Cancel the original event to handle per-player translation
-        event.setCancelled(true);
-        plugin.debug("Cancelled original ChatControl event for per-player translation");
+        Set<Player> originalRecipients = Set.copyOf(event.getRecipients());
 
-        // Process translation for each recipient
-        processPerPlayerTranslation(sender, message, event.getRecipients(), isGlobalChannel);
+        event.getRecipients().removeIf(player ->
+            !player.equals(sender) && needsTranslationForPlayer(message, player)
+        );
+
+        plugin.debug("Modified recipients for ChatControl delivery. Original: " +
+                    originalRecipients.size() + ", Modified: " + event.getRecipients().size());
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            processTranslationForRemovedRecipients(sender, message, originalRecipients, event.getRecipients(), isGlobalChannel);
+        }, 1L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -94,6 +99,45 @@ public class ChatControlListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             translatePrivateMessage(sender, target, message);
         }, 1L); // 1 tick delay to let ChatControl finish
+    }
+
+    private void processTranslationForRemovedRecipients(Player sender, String message, Set<Player> originalRecipients, Set<Player> currentRecipients, boolean isGlobalChannel) {
+        String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+        translatingMessages.add(messageKey);
+
+        plugin.debug("Processing translation for recipients removed from ChatControl delivery");
+
+        for (Player recipient : originalRecipients) {
+            if (recipient.equals(sender)) continue;
+            if (currentRecipients.contains(recipient)) continue; // This player got the original message
+
+            plugin.debug("Translating message for removed recipient: " + recipient.getName());
+
+            translationManager.translateForPlayer(message, recipient)
+                    .whenComplete((result, throwable) -> {
+                        plugin.debug("Translation completed for " + recipient.getName());
+
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (throwable != null) {
+                                plugin.debug("Translation error for " + recipient.getName() + ": " + throwable.getMessage());
+                                // Send original message on error
+                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                recipient.sendMessage(originalMessage);
+                            } else if (result.wasTranslated()) {
+                                plugin.debug("Sending translated message to " + recipient.getName());
+                                Component translatedMessage = createFormattedMessage(sender, result.getTranslatedText(), true, result, isGlobalChannel);
+                                recipient.sendMessage(translatedMessage);
+                            } else {
+                                plugin.debug("No translation needed, sending original");
+                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                recipient.sendMessage(originalMessage);
+                            }
+                        });
+                    });
+        }
+
+        translatingMessages.remove(messageKey);
+        plugin.debug("Removed message from translation queue: " + messageKey);
     }
 
     private void processPerPlayerTranslation(Player sender, String message, Set<Player> recipients, boolean isGlobalChannel) {
