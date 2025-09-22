@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.translator.command.LangCommand;
 import net.mysterria.translator.listener.ChatListener;
+import net.mysterria.translator.listener.ChatControlListener;
 import net.mysterria.translator.listener.PlayerJoinListener;
 import net.mysterria.translator.manager.LangManager;
 import net.mysterria.translator.ollama.OllamaClient;
@@ -79,7 +80,16 @@ public class MysterriaTranslator extends JavaPlugin {
 
         getCommand("lang").setExecutor(new LangCommand(langManager, this));
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
-        getServer().getPluginManager().registerEvents(new ChatListener(this, translationManager), this);
+
+        // Register ChatControl-based listener for better integration
+        if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
+            getServer().getPluginManager().registerEvents(new ChatControlListener(this, translationManager), this);
+            log("Registered ChatControl integration listener.");
+        } else {
+            // Fallback to Bukkit events if ChatControl is not available
+            getServer().getPluginManager().registerEvents(new ChatListener(this, translationManager), this);
+            log("ChatControl not found, using Bukkit events fallback.");
+        }
 
         long endTime = System.currentTimeMillis();
         log("\u001B[1;32mPlugin loaded successfully in " + (endTime - startTime) + "ms\u001B[0m");
