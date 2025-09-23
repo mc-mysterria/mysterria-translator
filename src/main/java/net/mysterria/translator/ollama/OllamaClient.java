@@ -37,13 +37,17 @@ public class OllamaClient {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
-                plugin.debug("Translation failed: " + e.getMessage());
+                plugin.debug("Translation failed - " + e.getClass().getSimpleName() + ": " +
+                    (e.getMessage() != null ? e.getMessage() : "No error message") +
+                    " (Cause: " + (e.getCause() != null ? e.getCause().toString() : "Unknown") + ")");
                 throw new RuntimeException(e);
             }
         });
     }
 
     private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+        plugin.debug("Attempting translation to Ollama at: " + baseUrl + "/api/generate");
+
         JsonObject options = new JsonObject();
         options.addProperty("temperature", 0.3);
         options.addProperty("top_p", 0.9);
@@ -66,16 +70,28 @@ public class OllamaClient {
 
         HttpRequest httpRequest = requestBuilder.build();
 
-        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() != 200) {
-            throw new IOException("Ollama responded with status: " + response.statusCode() + " - " + response.body());
+            if (response.statusCode() != 200) {
+                String errorMsg = "Ollama responded with status: " + response.statusCode() + " - " + response.body();
+                plugin.debug(errorMsg);
+                throw new IOException(errorMsg);
+            }
+
+            JsonObject responseJson = gson.fromJson(response.body(), JsonObject.class);
+            String fullResponse = responseJson.get("response").getAsString();
+
+            return extractTranslation(fullResponse);
+        } catch (java.net.ConnectException e) {
+            String errorMsg = "Failed to connect to Ollama server at " + baseUrl + ". Is Ollama running?";
+            plugin.debug(errorMsg);
+            throw new IOException(errorMsg, e);
+        } catch (java.net.SocketTimeoutException e) {
+            String errorMsg = "Timeout connecting to Ollama server at " + baseUrl;
+            plugin.debug(errorMsg);
+            throw new IOException(errorMsg, e);
         }
-
-        JsonObject responseJson = gson.fromJson(response.body(), JsonObject.class);
-        String fullResponse = responseJson.get("response").getAsString();
-
-        return extractTranslation(fullResponse);
     }
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
