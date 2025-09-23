@@ -7,6 +7,7 @@ import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,36 +59,36 @@ public class TranslationManager {
                 TranslationResult.noTranslation(message, "Message too short")
             );
         }
-        
+
         String playerLocale = player.locale().toString().toLowerCase();
-        
+
         if (!LanguageDetector.needsTranslation(message, playerLocale)) {
             return CompletableFuture.completedFuture(
                 TranslationResult.noTranslation(message, "No translation needed")
             );
         }
-        
+
         if (!canPlayerTranslate(player.getUniqueId())) {
             return CompletableFuture.completedFuture(
                 TranslationResult.rateLimited(message)
             );
         }
-        
+
         String targetLang = LanguageDetector.getTargetLanguage(playerLocale);
         LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
-        
+
         String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
         CachedTranslation cached = translationCache.get(cacheKey);
-        
+
         if (cached != null && !cached.isExpired()) {
             plugin.debug("Using cached translation for: " + message.substring(0, Math.min(20, message.length())));
             return CompletableFuture.completedFuture(
                 TranslationResult.success(cached.translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang))
             );
         }
-        
+
         incrementPlayerUsage(player.getUniqueId());
-        
+
         return translateWithRetry(message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang), 0)
                 .thenApply(translation -> {
                     if (translation != null) {
@@ -98,6 +99,90 @@ public class TranslationManager {
                         return TranslationResult.failed(message, "Translation service unavailable");
                     }
                 });
+    }
+
+    public CompletableFuture<Map<String, TranslationResult>> translateForMultiplePlayers(String message, Set<Player> players) {
+        if (message.length() < minMessageLength) {
+            Map<String, TranslationResult> results = new ConcurrentHashMap<>();
+            for (Player player : players) {
+                results.put(player.getUniqueId().toString(),
+                    TranslationResult.noTranslation(message, "Message too short"));
+            }
+            return CompletableFuture.completedFuture(results);
+        }
+
+        LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
+        Map<String, Set<Player>> playersByTargetLang = new ConcurrentHashMap<>();
+        Map<String, TranslationResult> results = new ConcurrentHashMap<>();
+
+        // Group players by target language and filter out those who don't need translation
+        for (Player player : players) {
+            String playerLocale = player.locale().toString().toLowerCase();
+
+            if (!LanguageDetector.needsTranslation(message, playerLocale)) {
+                results.put(player.getUniqueId().toString(),
+                    TranslationResult.noTranslation(message, "No translation needed"));
+                continue;
+            }
+
+            if (!canPlayerTranslate(player.getUniqueId())) {
+                results.put(player.getUniqueId().toString(),
+                    TranslationResult.rateLimited(message));
+                continue;
+            }
+
+            String targetLang = LanguageDetector.getTargetLanguage(playerLocale);
+            String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
+            CachedTranslation cached = translationCache.get(cacheKey);
+
+            if (cached != null && !cached.isExpired()) {
+                plugin.debug("Using cached translation for player " + player.getName() + ": " + message.substring(0, Math.min(20, message.length())));
+                results.put(player.getUniqueId().toString(),
+                    TranslationResult.success(cached.translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang)));
+                continue;
+            }
+
+            // Group by target language for batch translation
+            playersByTargetLang.computeIfAbsent(targetLang, k -> ConcurrentHashMap.newKeySet()).add(player);
+            incrementPlayerUsage(player.getUniqueId());
+        }
+
+        // If all players already have results, return immediately
+        if (playersByTargetLang.isEmpty()) {
+            return CompletableFuture.completedFuture(results);
+        }
+
+        // Translate once per unique target language
+        CompletableFuture<Void> allTranslations = CompletableFuture.allOf(
+            playersByTargetLang.entrySet().stream().map(entry -> {
+                String targetLang = entry.getKey();
+                Set<Player> playersForLang = entry.getValue();
+
+                plugin.debug("Translating message once for " + playersForLang.size() + " players with target language: " + targetLang);
+
+                return translateWithRetry(message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang), 0)
+                    .thenAccept(translation -> {
+                        if (translation != null) {
+                            String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
+                            translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
+                            plugin.debug("Translated and cached for language " + targetLang + ": " + message.substring(0, Math.min(20, message.length())));
+
+                            // Apply the same translation to all players with this target language
+                            for (Player player : playersForLang) {
+                                results.put(player.getUniqueId().toString(),
+                                    TranslationResult.success(translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang)));
+                            }
+                        } else {
+                            for (Player player : playersForLang) {
+                                results.put(player.getUniqueId().toString(),
+                                    TranslationResult.failed(message, "Translation service unavailable"));
+                            }
+                        }
+                    });
+            }).toArray(CompletableFuture[]::new)
+        );
+
+        return allTranslations.thenApply(v -> results);
     }
     
     private CompletableFuture<String> translateWithRetry(String message, String fromLang, String toLang, int attempt) {

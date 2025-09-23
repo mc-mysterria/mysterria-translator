@@ -212,38 +212,46 @@ public class ChatListener implements Listener {
         plugin.debug("Original audience size: " + originalAudience.size() + ", Translation needed for: " + translationNeeded.size() + " players");
 
         if (!translationNeeded.isEmpty()) {
-            plugin.debug("Starting translation for " + translationNeeded.size() + " players");
-            for (Player player : translationNeeded) {
-                plugin.debug("Requesting translation for player: " + player.getName());
-                translationManager.translateForPlayer(message, player)
-                        .whenComplete((result, throwable) -> {
-                            translatingMessages.remove(messageKey);
-                            plugin.debug("Translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+            plugin.debug("Starting optimized translation for " + translationNeeded.size() + " players");
+            translationManager.translateForMultiplePlayers(message, translationNeeded)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("Batch translation completed for " + translationNeeded.size() + " players, removed from queue: " + messageKey);
 
-                            if (throwable != null) {
-                                plugin.debug("Translation error for " + player.getName() + ": " + throwable.getMessage());
-                                Bukkit.getScheduler().runTask(plugin, () -> {
-                                    Component originalMessage = createOriginalMessage(sender, message);
+                        if (throwable != null) {
+                            plugin.debug("Batch translation error: " + throwable.getMessage());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component originalMessage = createOriginalMessage(sender, message);
+                                for (Player player : translationNeeded) {
                                     player.sendMessage(originalMessage);
                                     plugin.debug("Sent original message to " + player.getName() + " due to translation error");
-                                });
-                                return;
-                            }
+                                }
+                            });
+                            return;
+                        }
 
-                            plugin.debug("Translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                Component messageComponent = createTranslatedMessage(result, sender);
-                                if (messageComponent != null) {
-                                    player.sendMessage(messageComponent);
-                                    plugin.debug("Sent translated message to " + player.getName());
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            for (Player player : translationNeeded) {
+                                TranslationResult result = results.get(player.getUniqueId().toString());
+                                if (result != null) {
+                                    plugin.debug("Translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                                    Component messageComponent = createTranslatedMessage(result, sender);
+                                    if (messageComponent != null) {
+                                        player.sendMessage(messageComponent);
+                                        plugin.debug("Sent translated message to " + player.getName());
+                                    } else {
+                                        Component originalMessage = createOriginalMessage(sender, message);
+                                        player.sendMessage(originalMessage);
+                                        plugin.debug("Sent original message to " + player.getName() + " (no translation needed)");
+                                    }
                                 } else {
                                     Component originalMessage = createOriginalMessage(sender, message);
                                     player.sendMessage(originalMessage);
-                                    plugin.debug("Sent original message to " + player.getName() + " (no translation needed)");
+                                    plugin.debug("Sent original message to " + player.getName() + " (no result)");
                                 }
-                            });
+                            }
                         });
-            }
+                    });
         } else {
             translatingMessages.remove(messageKey);
             plugin.debug("No translation needed, removed from queue: " + messageKey);
@@ -262,6 +270,14 @@ public class ChatListener implements Listener {
 
     private void translateAndSendMessage(Player sender, Player target, String message, boolean isPrivate) {
         String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+
+        plugin.debug("Checking if private message needs translation for " + target.getName());
+
+        if (!needsTranslationForPlayer(message, target)) {
+            plugin.debug("Private message doesn't need translation for " + target.getName() + ", not sending duplicate");
+            return; // Don't send anything - the original message was already sent by the command system
+        }
+
         translatingMessages.add(messageKey);
         plugin.debug("Added private message to translation queue: " + messageKey + " (isPrivate: " + isPrivate + ")");
 
@@ -519,29 +535,29 @@ public class ChatListener implements Listener {
         }
 
         if (!translationNeeded.isEmpty()) {
-            plugin.debug("Starting cancelled global chat translation for " + translationNeeded.size() + " players");
-            for (Player player : translationNeeded) {
-                plugin.debug("Requesting cancelled global chat translation for player: " + player.getName());
-                translationManager.translateForPlayer(processedMessage, player)
-                        .whenComplete((result, throwable) -> {
-                            translatingMessages.remove(messageKey);
-                            plugin.debug("Cancelled global chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+            plugin.debug("Starting optimized cancelled global chat translation for " + translationNeeded.size() + " players");
+            translationManager.translateForMultiplePlayers(processedMessage, translationNeeded)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("Cancelled global chat batch translation completed for " + translationNeeded.size() + " players, removed from queue: " + messageKey);
 
-                            if (throwable != null) {
-                                plugin.debug("Cancelled global chat translation error for " + player.getName() + ": " + throwable.getMessage());
-                                return;
-                            }
+                        if (throwable != null) {
+                            plugin.debug("Cancelled global chat batch translation error: " + throwable.getMessage());
+                            return;
+                        }
 
-                            plugin.debug("Cancelled global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
-                            if (result.wasTranslated()) {
-                                Bukkit.getScheduler().runTask(plugin, () -> {
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            for (Player player : translationNeeded) {
+                                TranslationResult result = results.get(player.getUniqueId().toString());
+                                if (result != null && result.wasTranslated()) {
+                                    plugin.debug("Cancelled global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
                                     Component messageComponent = createGlobalChatMessage(sender, result.getTranslatedText(), true, result);
                                     player.sendMessage(messageComponent);
                                     plugin.debug("Sent translated cancelled global chat message to " + player.getName());
-                                });
+                                }
                             }
                         });
-            }
+                    });
         } else {
             translatingMessages.remove(messageKey);
             plugin.debug("No translation needed for cancelled global chat, removed from queue: " + messageKey);
@@ -581,32 +597,40 @@ public class ChatListener implements Listener {
         }
 
         if (!translationNeeded.isEmpty()) {
-            plugin.debug("Starting global chat translation for " + translationNeeded.size() + " players");
-            for (Player player : translationNeeded) {
-                plugin.debug("Requesting global chat translation for player: " + player.getName());
-                translationManager.translateForPlayer(processedMessage, player)
-                        .whenComplete((result, throwable) -> {
-                            translatingMessages.remove(messageKey);
-                            plugin.debug("Global chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+            plugin.debug("Starting optimized global chat translation for " + translationNeeded.size() + " players");
+            translationManager.translateForMultiplePlayers(processedMessage, translationNeeded)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("Global chat batch translation completed for " + translationNeeded.size() + " players, removed from queue: " + messageKey);
 
-                            if (throwable != null) {
-                                plugin.debug("Global chat translation error for " + player.getName() + ": " + throwable.getMessage());
-                                Bukkit.getScheduler().runTask(plugin, () -> {
-                                    Component fallbackMessage = createGlobalChatMessage(sender, processedMessage, false, null);
+                        if (throwable != null) {
+                            plugin.debug("Global chat batch translation error: " + throwable.getMessage());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component fallbackMessage = createGlobalChatMessage(sender, processedMessage, false, null);
+                                for (Player player : translationNeeded) {
                                     player.sendMessage(fallbackMessage);
                                     plugin.debug("Sent original global chat message to " + player.getName() + " due to translation error");
-                                });
-                                return;
-                            }
-
-                            plugin.debug("Global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                Component messageComponent = createGlobalChatMessage(sender, result.getTranslatedText(), true, result);
-                                player.sendMessage(messageComponent);
-                                plugin.debug("Sent translated global chat message to " + player.getName());
+                                }
                             });
+                            return;
+                        }
+
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            for (Player player : translationNeeded) {
+                                TranslationResult result = results.get(player.getUniqueId().toString());
+                                if (result != null) {
+                                    plugin.debug("Global chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                                    Component messageComponent = createGlobalChatMessage(sender, result.getTranslatedText(), true, result);
+                                    player.sendMessage(messageComponent);
+                                    plugin.debug("Sent translated global chat message to " + player.getName());
+                                } else {
+                                    Component fallbackMessage = createGlobalChatMessage(sender, processedMessage, false, null);
+                                    player.sendMessage(fallbackMessage);
+                                    plugin.debug("Sent original global chat message to " + player.getName() + " (no result)");
+                                }
+                            }
                         });
-            }
+                    });
         } else {
             translatingMessages.remove(messageKey);
             plugin.debug("No translation needed for global chat, removed from queue: " + messageKey);
@@ -725,38 +749,46 @@ public class ChatListener implements Listener {
 
         // Translate for players who need it
         if (!translationNeeded.isEmpty()) {
-            plugin.debug("Starting range chat translation for " + translationNeeded.size() + " players");
-            for (Player player : translationNeeded) {
-                plugin.debug("Requesting range chat translation for player: " + player.getName());
-                translationManager.translateForPlayer(message, player)
-                        .whenComplete((result, throwable) -> {
-                            translatingMessages.remove(messageKey);
-                            plugin.debug("Range chat translation completed for " + player.getName() + ", removed from queue: " + messageKey);
+            plugin.debug("Starting optimized range chat translation for " + translationNeeded.size() + " players");
+            translationManager.translateForMultiplePlayers(message, translationNeeded)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("Range chat batch translation completed for " + translationNeeded.size() + " players, removed from queue: " + messageKey);
 
-                            if (throwable != null) {
-                                plugin.debug("Range chat translation error for " + player.getName() + ": " + throwable.getMessage());
-                                Bukkit.getScheduler().runTask(plugin, () -> {
-                                    Component fallbackMessage = createRangeChatMessage(sender, message, false, null);
+                        if (throwable != null) {
+                            plugin.debug("Range chat batch translation error: " + throwable.getMessage());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component fallbackMessage = createRangeChatMessage(sender, message, false, null);
+                                for (Player player : translationNeeded) {
                                     player.sendMessage(fallbackMessage);
                                     plugin.debug("Sent original range chat message to " + player.getName() + " due to translation error");
-                                });
-                                return;
-                            }
+                                }
+                            });
+                            return;
+                        }
 
-                            plugin.debug("Range chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                Component messageComponent = createRangeChatMessage(sender, result.getTranslatedText(), true, result);
-                                if (messageComponent != null) {
-                                    player.sendMessage(messageComponent);
-                                    plugin.debug("Sent translated range chat message to " + player.getName());
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            for (Player player : translationNeeded) {
+                                TranslationResult result = results.get(player.getUniqueId().toString());
+                                if (result != null) {
+                                    plugin.debug("Range chat translation result for " + player.getName() + ": " + result.getType() + ", translated: " + result.wasTranslated());
+                                    Component messageComponent = createRangeChatMessage(sender, result.getTranslatedText(), true, result);
+                                    if (messageComponent != null) {
+                                        player.sendMessage(messageComponent);
+                                        plugin.debug("Sent translated range chat message to " + player.getName());
+                                    } else {
+                                        Component originalMessage = createRangeChatMessage(sender, message, false, null);
+                                        player.sendMessage(originalMessage);
+                                        plugin.debug("Sent original range chat message to " + player.getName() + " (no translation needed)");
+                                    }
                                 } else {
                                     Component originalMessage = createRangeChatMessage(sender, message, false, null);
                                     player.sendMessage(originalMessage);
-                                    plugin.debug("Sent original range chat message to " + player.getName() + " (no translation needed)");
+                                    plugin.debug("Sent original range chat message to " + player.getName() + " (no result)");
                                 }
-                            });
+                            }
                         });
-            }
+                    });
         } else {
             translatingMessages.remove(messageKey);
             plugin.debug("No translation needed for range chat, removed from queue: " + messageKey);

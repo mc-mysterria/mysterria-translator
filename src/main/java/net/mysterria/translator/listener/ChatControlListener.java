@@ -107,37 +107,60 @@ public class ChatControlListener implements Listener {
 
         plugin.debug("Processing translation for recipients removed from ChatControl delivery");
 
+        Set<Player> needsTranslation = ConcurrentHashMap.newKeySet();
         for (Player recipient : originalRecipients) {
             if (recipient.equals(sender)) continue;
             if (currentRecipients.contains(recipient)) continue; // This player got the original message
 
-            plugin.debug("Translating message for removed recipient: " + recipient.getName());
+            if (needsTranslationForPlayer(message, recipient)) {
+                needsTranslation.add(recipient);
+                plugin.debug("Recipient " + recipient.getName() + " needs translation");
+            } else {
+                // Send original message immediately to those who don't need translation
+                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                recipient.sendMessage(originalMessage);
+                plugin.debug("Sent original message to " + recipient.getName() + " (no translation needed)");
+            }
+        }
 
-            translationManager.translateForPlayer(message, recipient)
-                    .whenComplete((result, throwable) -> {
-                        plugin.debug("Translation completed for " + recipient.getName());
+        if (!needsTranslation.isEmpty()) {
+            plugin.debug("Starting optimized ChatControl translation for " + needsTranslation.size() + " removed recipients");
+            translationManager.translateForMultiplePlayers(message, needsTranslation)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("ChatControl batch translation completed for " + needsTranslation.size() + " recipients, removed from queue: " + messageKey);
+
+                        if (throwable != null) {
+                            plugin.debug("ChatControl batch translation error: " + throwable.getMessage());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                for (Player recipient : needsTranslation) {
+                                    recipient.sendMessage(originalMessage);
+                                    plugin.debug("Sent original message to " + recipient.getName() + " due to translation error");
+                                }
+                            });
+                            return;
+                        }
 
                         Bukkit.getScheduler().runTask(plugin, () -> {
-                            if (throwable != null) {
-                                plugin.debug("Translation error for " + recipient.getName() + ": " + throwable.getMessage());
-                                // Send original message on error
-                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
-                                recipient.sendMessage(originalMessage);
-                            } else if (result.wasTranslated()) {
-                                plugin.debug("Sending translated message to " + recipient.getName());
-                                Component translatedMessage = createFormattedMessage(sender, result.getTranslatedText(), true, result, isGlobalChannel);
-                                recipient.sendMessage(translatedMessage);
-                            } else {
-                                plugin.debug("No translation needed, sending original");
-                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
-                                recipient.sendMessage(originalMessage);
+                            for (Player recipient : needsTranslation) {
+                                TranslationResult result = results.get(recipient.getUniqueId().toString());
+                                if (result != null && result.wasTranslated()) {
+                                    plugin.debug("Sending translated message to " + recipient.getName());
+                                    Component translatedMessage = createFormattedMessage(sender, result.getTranslatedText(), true, result, isGlobalChannel);
+                                    recipient.sendMessage(translatedMessage);
+                                } else {
+                                    plugin.debug("No translation result, sending original to " + recipient.getName());
+                                    Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                    recipient.sendMessage(originalMessage);
+                                }
                             }
                         });
                     });
+        } else {
+            translatingMessages.remove(messageKey);
+            plugin.debug("No translation needed for removed recipients, removed from queue: " + messageKey);
         }
-
-        translatingMessages.remove(messageKey);
-        plugin.debug("Removed message from translation queue: " + messageKey);
     }
 
     private void processPerPlayerTranslation(Player sender, String message, Set<Player> recipients, boolean isGlobalChannel) {
@@ -222,9 +245,8 @@ public class ChatControlListener implements Listener {
                     });
         } else {
             translatingMessages.remove(messageKey);
-            plugin.debug("Private message doesn't need translation");
-            Component originalMessage = createPrivateMessage(sender, message, false, null);
-            target.sendMessage(originalMessage);
+            plugin.debug("Private message doesn't need translation, not sending duplicate (ChatControl already handled it)");
+            // Don't send anything - ChatControl already sent the original private message
         }
     }
 

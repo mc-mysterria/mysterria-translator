@@ -180,4 +180,30 @@ public class MysterriaTranslator extends JavaPlugin {
         }
     }
 
+    public void reloadTranslationManager() {
+        log("Reloading translation engines and manager...");
+
+        // Shutdown existing translation manager
+        if (translationManager != null) {
+            translationManager.shutdown();
+        }
+
+        // Recreate clients with new configuration
+        this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+        this.libreTranslateClient = new LibreTranslateClient(this,
+            getConfig().getString("translation.libretranslate.url"),
+            getConfig().getString("translation.libretranslate.apiKey"),
+            getConfig().getInt("translation.libretranslate.alternatives", 3),
+            getConfig().getString("translation.libretranslate.format", "text"));
+
+        // Recreate translation manager
+        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient);
+
+        log("Translation engines and manager successfully reloaded!");
+    }
+
+    public TranslationManager getTranslationManager() {
+        return translationManager;
+    }
+
 }

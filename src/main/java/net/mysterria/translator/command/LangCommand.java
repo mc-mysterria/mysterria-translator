@@ -66,6 +66,7 @@ public class LangCommand implements CommandExecutor, TabCompleter {
             plugin.reloadConfig();
             langManager.loadAll();
             langManager.clearCache();
+            plugin.reloadTranslationManager();
             plugin.log("Reloaded " + langManager.getAvailableLangs().size() + " languages! " + langManager.getAvailableLangs());
             plugin.log("Reloaded " + langManager.getTotalTranslationsCount() + " total translations!");
             sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "reload_success"));
