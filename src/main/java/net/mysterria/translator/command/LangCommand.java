@@ -63,7 +63,6 @@ public class LangCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args[0].equalsIgnoreCase("reload")) {
-            plugin.reloadConfig();
             langManager.loadAll();
             langManager.clearCache();
             plugin.reloadTranslationManager();

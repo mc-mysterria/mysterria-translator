@@ -183,6 +183,9 @@ public class MysterriaTranslator extends JavaPlugin {
     public void reloadTranslationManager() {
         log("Reloading translation engines and manager...");
 
+        // Reload config first to ensure we have the latest values
+        reloadConfig();
+
         // Shutdown existing translation manager
         if (translationManager != null) {
             translationManager.shutdown();
@@ -199,7 +202,7 @@ public class MysterriaTranslator extends JavaPlugin {
         // Recreate translation manager
         this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient);
 
-        log("Translation engines and manager successfully reloaded!");
+        log("Translation engines and manager successfully reloaded with provider: " + getConfig().getString("translation.provider", "ollama"));
     }
 
     public TranslationManager getTranslationManager() {
