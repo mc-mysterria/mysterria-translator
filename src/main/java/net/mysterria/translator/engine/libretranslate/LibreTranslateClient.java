@@ -1,4 +1,4 @@
-package net.mysterria.translator.libretranslate;
+package net.mysterria.translator.engine.libretranslate;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;

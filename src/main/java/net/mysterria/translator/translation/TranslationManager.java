@@ -1,8 +1,9 @@
 package net.mysterria.translator.translation;
 
 import net.mysterria.translator.MysterriaTranslator;
-import net.mysterria.translator.ollama.OllamaClient;
-import net.mysterria.translator.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.ollama.OllamaClient;
+import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.gemini.GeminiClient;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.entity.Player;
 
@@ -14,13 +15,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class TranslationManager {
 
     private final MysterriaTranslator plugin;
     private final OllamaClient ollamaClient;
     private final LibreTranslateClient libreTranslateClient;
+    private final GeminiClient geminiClient;
     private final String provider;
     private final ScheduledExecutorService scheduler;
     
@@ -33,10 +34,11 @@ public class TranslationManager {
     private final int minMessageLength;
     private final int maxRetries;
     
-    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient) {
+    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient, GeminiClient geminiClient) {
         this.plugin = plugin;
         this.ollamaClient = ollamaClient;
         this.libreTranslateClient = libreTranslateClient;
+        this.geminiClient = geminiClient;
         this.provider = plugin.getConfig().getString("translation.provider", "ollama");
         this.scheduler = Executors.newScheduledThreadPool(2);
         
@@ -75,26 +77,36 @@ public class TranslationManager {
         }
 
         String targetLang = LanguageDetector.getTargetLanguage(playerLocale);
-        LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
 
-        String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
+        // For Gemini, use automatic language detection instead of manual detection
+        String sourceLangCode;
+        String sourceLangDisplay;
+        if ("gemini".equalsIgnoreCase(provider)) {
+            sourceLangCode = "auto";
+            sourceLangDisplay = "Auto-detected";
+        } else {
+            LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
+            sourceLangCode = sourceLang.getLangCode();
+            sourceLangDisplay = sourceLang.getDisplayName();
+        }
+
+        String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
         CachedTranslation cached = translationCache.get(cacheKey);
 
         if (cached != null && !cached.isExpired()) {
-            plugin.debug("Using cached translation for: " + message.substring(0, Math.min(20, message.length())));
             return CompletableFuture.completedFuture(
-                TranslationResult.success(cached.translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang))
+                TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang))
             );
         }
 
         incrementPlayerUsage(player.getUniqueId());
 
-        return translateWithRetry(message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang), 0)
+        return translateWithRetry(message, sourceLangCode, targetLang, 0)
                 .thenApply(translation -> {
                     if (translation != null) {
                         translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                        plugin.debug("Translated and cached: " + message.substring(0, Math.min(20, message.length())));
-                        return TranslationResult.success(translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang));
+                        plugin.debug("Translated: " + translation);
+                        return TranslationResult.success(translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang));
                     } else {
                         return TranslationResult.failed(message, "Translation service unavailable");
                     }
@@ -111,7 +123,17 @@ public class TranslationManager {
             return CompletableFuture.completedFuture(results);
         }
 
-        LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
+        // For Gemini, use automatic language detection instead of manual detection
+        String sourceLangCode;
+        String sourceLangDisplay;
+        if ("gemini".equalsIgnoreCase(provider)) {
+            sourceLangCode = "auto";
+            sourceLangDisplay = "Auto-detected";
+        } else {
+            LanguageDetector.DetectedLanguage sourceLang = LanguageDetector.detectLanguage(message);
+            sourceLangCode = sourceLang.getLangCode();
+            sourceLangDisplay = sourceLang.getDisplayName();
+        }
         Map<String, Set<Player>> playersByTargetLang = new ConcurrentHashMap<>();
         Map<String, TranslationResult> results = new ConcurrentHashMap<>();
 
@@ -132,13 +154,12 @@ public class TranslationManager {
             }
 
             String targetLang = LanguageDetector.getTargetLanguage(playerLocale);
-            String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
+            String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
             CachedTranslation cached = translationCache.get(cacheKey);
 
             if (cached != null && !cached.isExpired()) {
-                plugin.debug("Using cached translation for player " + player.getName() + ": " + message.substring(0, Math.min(20, message.length())));
                 results.put(player.getUniqueId().toString(),
-                    TranslationResult.success(cached.translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang)));
+                    TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
                 continue;
             }
 
@@ -158,19 +179,17 @@ public class TranslationManager {
                 String targetLang = entry.getKey();
                 Set<Player> playersForLang = entry.getValue();
 
-                plugin.debug("Translating message once for " + playersForLang.size() + " players with target language: " + targetLang);
-
-                return translateWithRetry(message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang), 0)
+                return translateWithRetry(message, sourceLangCode, targetLang, 0)
                     .thenAccept(translation -> {
                         if (translation != null) {
-                            String cacheKey = generateCacheKey(message, sourceLang.getLangCode(), targetLang);
+                            String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
                             translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                            plugin.debug("Translated and cached for language " + targetLang + ": " + message.substring(0, Math.min(20, message.length())));
+                            plugin.debug("Translated: " + translation);
 
                             // Apply the same translation to all players with this target language
                             for (Player player : playersForLang) {
                                 results.put(player.getUniqueId().toString(),
-                                    TranslationResult.success(translation, message, sourceLang.getDisplayName(), getLanguageDisplayName(targetLang)));
+                                    TranslationResult.success(translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
                             }
                         } else {
                             for (Player player : playersForLang) {
@@ -190,12 +209,18 @@ public class TranslationManager {
 
         if ("libretranslate".equalsIgnoreCase(provider)) {
             translationFuture = libreTranslateClient.translateAsync(message, fromLang, toLang);
+        } else if ("gemini".equalsIgnoreCase(provider)) {
+            boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
+            if (includeContext) {
+                translationFuture = geminiClient.translateAsyncWithContext(message, fromLang, toLang);
+            } else {
+                translationFuture = geminiClient.translateAsync(message, fromLang, toLang);
+            }
         } else {
             translationFuture = ollamaClient.translateAsync(message, fromLang, toLang);
         }
 
         return translationFuture.exceptionally(throwable -> {
-            plugin.debug("Translation attempt " + (attempt + 1) + " failed with " + provider + ": " + throwable.getMessage());
             if (attempt < maxRetries) {
                 try {
                     Thread.sleep(1000 * (attempt + 1));
@@ -232,6 +257,32 @@ public class TranslationManager {
         return switch (langCode) {
             case "uk_ua" -> "Ukrainian";
             case "en_us" -> "English";
+            case "ru_ru" -> "Russian";
+            case "es_es" -> "Spanish";
+            case "fr_fr" -> "French";
+            case "de_de" -> "German";
+            case "it_it" -> "Italian";
+            case "pt_pt" -> "Portuguese";
+            case "zh_cn" -> "Chinese";
+            case "ja_jp" -> "Japanese";
+            case "ko_kr" -> "Korean";
+            case "ar_sa" -> "Arabic";
+            case "hi_in" -> "Hindi";
+            case "pl_pl" -> "Polish";
+            case "nl_nl" -> "Dutch";
+            case "sv_se" -> "Swedish";
+            case "no_no" -> "Norwegian";
+            case "da_dk" -> "Danish";
+            case "fi_fi" -> "Finnish";
+            case "cs_cz" -> "Czech";
+            case "hu_hu" -> "Hungarian";
+            case "ro_ro" -> "Romanian";
+            case "bg_bg" -> "Bulgarian";
+            case "el_gr" -> "Greek";
+            case "tr_tr" -> "Turkish";
+            case "he_il" -> "Hebrew";
+            case "th_th" -> "Thai";
+            case "vi_vn" -> "Vietnamese";
             default -> "Unknown";
         };
     }

@@ -35,10 +35,11 @@ translation:
   # Enable/disable automatic translation
   enabled: true
 
-  # Translation provider: "ollama" or "libretranslate"
+  # Translation provider: "ollama", "libretranslate", or "gemini"
   # Switch between providers by changing this value
   # - "ollama": Uses local Ollama instance (AI models)
   # - "libretranslate": Uses LibreTranslate API service
+  # - "gemini": Uses Google Gemini API (supports automatic language detection)
   provider: "ollama"
 
   # Global chat settings
@@ -90,6 +91,16 @@ translation:
     apiKey: "your-api-key-here"
     alternatives: 3  # Number of alternative translations to request
     format: "text"   # Format: "text" or "html"
+
+  # Gemini configuration
+  gemini:
+    # List of API keys (for rate limit handling)
+    # Add multiple keys separated by commas for better reliability
+    apiKeys:
+      - "your-gemini-api-key-1"
+      - "your-gemini-api-key-2"
+    # Enable contextual translation (includes online player names)
+    includeContext: true
 
   # Cache settings
   cacheExpirySeconds: 30

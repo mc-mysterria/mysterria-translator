@@ -1,4 +1,4 @@
-package net.mysterria.translator.ollama;
+package net.mysterria.translator.engine.ollama;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;

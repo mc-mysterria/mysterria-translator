@@ -7,8 +7,9 @@ import net.mysterria.translator.listener.ChatListener;
 import net.mysterria.translator.listener.ChatControlListener;
 import net.mysterria.translator.listener.PlayerJoinListener;
 import net.mysterria.translator.manager.LangManager;
-import net.mysterria.translator.ollama.OllamaClient;
-import net.mysterria.translator.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.ollama.OllamaClient;
+import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.gemini.GeminiClient;
 import net.mysterria.translator.placeholder.LangExpansion;
 import net.mysterria.translator.storage.PlayerLangStorage;
 import net.mysterria.translator.storage.impl.MySQLPlayerLangStorage;
@@ -30,6 +31,7 @@ public class MysterriaTranslator extends JavaPlugin {
     private TranslationManager translationManager;
     private OllamaClient ollamaClient;
     private LibreTranslateClient libreTranslateClient;
+    private GeminiClient geminiClient;
 
     private final String pluginVersion = getDescription().getVersion();
 
@@ -60,8 +62,9 @@ public class MysterriaTranslator extends JavaPlugin {
             getConfig().getString("translation.libretranslate.apiKey"),
             getConfig().getInt("translation.libretranslate.alternatives", 3),
             getConfig().getString("translation.libretranslate.format", "text"));
+        this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
         this.langManager = new LangManager(this, storage);
-        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient);
+        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient);
 
         langManager.loadAll();
 
@@ -192,6 +195,7 @@ public class MysterriaTranslator extends JavaPlugin {
         }
 
         // Recreate clients with new configuration
+        this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
         this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
         this.libreTranslateClient = new LibreTranslateClient(this,
             getConfig().getString("translation.libretranslate.url"),
@@ -200,7 +204,7 @@ public class MysterriaTranslator extends JavaPlugin {
             getConfig().getString("translation.libretranslate.format", "text"));
 
         // Recreate translation manager
-        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient);
+        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient);
 
         log("Translation engines and manager successfully reloaded with provider: " + getConfig().getString("translation.provider", "ollama"));
     }
