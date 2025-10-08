@@ -10,6 +10,7 @@ import net.mysterria.translator.translation.TranslationManager;
 import net.mysterria.translator.translation.TranslationResult;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -39,40 +40,61 @@ public class ChatControlListener implements Listener {
             return;
         }
 
-        if (!(event.getSender() instanceof Player sender)) {
-            plugin.debug("Sender is not a player, skipping translation");
-            return;
-        }
+        plugin.debug("Sender is " + event.getSender().getName());
 
         String message = event.getMessage();
         String channelName = event.getChannel().getName();
-
-        plugin.debug("Processing ChatControl message from " + sender.getName() +
-                    " in channel '" + channelName + "': " + message);
-
-        String messageKey = sender.getUniqueId() + ":" + message.hashCode();
-        if (translatingMessages.contains(messageKey)) {
-            plugin.debug("Message already being translated, skipping: " + messageKey);
-            return;
-        }
-
-        // Check if this is a global channel
         boolean isGlobalChannel = isGlobalChannel(channelName);
 
-        plugin.debug("Channel type - Global: " + isGlobalChannel + ", Range: " + !isGlobalChannel);
+        if (event.getSender() instanceof Player sender) {
+            plugin.debug("Processing ChatControl message from " + sender.getName() +
+                         " in channel '" + channelName + "': " + message);
 
-        Set<Player> originalRecipients = Set.copyOf(event.getRecipients());
+            String messageKey = sender.getUniqueId() + ":" + message.hashCode();
+            if (translatingMessages.contains(messageKey)) {
+                plugin.debug("Message already being translated, skipping: " + messageKey);
+                return;
+            }
 
-        event.getRecipients().removeIf(player ->
-            !player.equals(sender) && needsTranslationForPlayer(message, player)
-        );
+            plugin.debug("Channel type - Global: " + isGlobalChannel + ", Range: " + !isGlobalChannel);
 
-        plugin.debug("Modified recipients for ChatControl delivery. Original: " +
-                    originalRecipients.size() + ", Modified: " + event.getRecipients().size());
+            Set<Player> originalRecipients = Set.copyOf(event.getRecipients());
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            processTranslationForRemovedRecipients(sender, message, originalRecipients, event.getRecipients(), isGlobalChannel);
-        }, 1L);
+            event.getRecipients().removeIf(player ->
+                    !player.equals(sender) && needsTranslationForPlayer(message, player)
+            );
+
+            plugin.debug("Modified recipients for ChatControl delivery. Original: " +
+                         originalRecipients.size() + ", Modified: " + event.getRecipients().size());
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                processTranslationForRemovedRecipients(sender, message, originalRecipients, event.getRecipients(), isGlobalChannel);
+            }, 1L);
+        } else {
+            CommandSender sender = event.getSender();
+
+            plugin.debug("Processing ChatControl message from " + sender.getName() +
+                         " in channel '" + channelName + "': " + message);
+
+            String messageKey = sender.getName() + ":" + message.hashCode();
+            if (translatingMessages.contains(messageKey)) {
+                plugin.debug("Message already being translated, skipping: " + messageKey);
+                return;
+            }
+
+            Set<Player> originalRecipients = Set.copyOf(event.getRecipients());
+
+            event.getRecipients().removeIf(player ->
+                    !player.equals(sender) && needsTranslationForPlayer(message, player)
+            );
+
+            plugin.debug("Modified recipients for ChatControl delivery. Original: " +
+                         originalRecipients.size() + ", Modified: " + event.getRecipients().size());
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                processTranslationForRemovedRecipients(sender, message, originalRecipients, event.getRecipients(), isGlobalChannel);
+            }, 1L);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -92,7 +114,7 @@ public class ChatControlListener implements Listener {
         String message = event.getMessage();
 
         plugin.debug("Processing ChatControl private message from " + sender.getName() +
-                    " to " + target.getName() + ": " + message);
+                     " to " + target.getName() + ": " + message);
 
         // DON'T cancel the event - let ChatControl handle it for reply tracking
         // Instead, schedule translation to happen after ChatControl processes it
@@ -125,6 +147,67 @@ public class ChatControlListener implements Listener {
 
         if (!needsTranslation.isEmpty()) {
             plugin.debug("Starting optimized ChatControl translation for " + needsTranslation.size() + " removed recipients");
+            translationManager.translateForMultiplePlayers(message, needsTranslation)
+                    .whenComplete((results, throwable) -> {
+                        translatingMessages.remove(messageKey);
+                        plugin.debug("ChatControl batch translation completed for " + needsTranslation.size() + " recipients, removed from queue: " + messageKey);
+
+                        if (throwable != null) {
+                            plugin.debug("ChatControl batch translation error: " + throwable.getMessage());
+                            Bukkit.getScheduler().runTask(plugin, () -> {
+                                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                for (Player recipient : needsTranslation) {
+                                    recipient.sendMessage(originalMessage);
+                                    plugin.debug("Sent original message to " + recipient.getName() + " due to translation error");
+                                }
+                            });
+                            return;
+                        }
+
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            for (Player recipient : needsTranslation) {
+                                TranslationResult result = results.get(recipient.getUniqueId().toString());
+                                if (result != null && result.wasTranslated()) {
+                                    plugin.debug("Sending translated message to " + recipient.getName());
+                                    Component translatedMessage = createFormattedMessage(sender, result.getTranslatedText(), true, result, isGlobalChannel);
+                                    recipient.sendMessage(translatedMessage);
+                                } else {
+                                    plugin.debug("No translation result, sending original to " + recipient.getName());
+                                    Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                                    recipient.sendMessage(originalMessage);
+                                }
+                            }
+                        });
+                    });
+        } else {
+            translatingMessages.remove(messageKey);
+            plugin.debug("No translation needed for removed recipients, removed from queue: " + messageKey);
+        }
+    }
+
+    private void processTranslationForRemovedRecipients(CommandSender sender, String message, Set<Player> originalRecipients, Set<Player> currentRecipients, boolean isGlobalChannel) {
+        String messageKey = sender.getName() + ":" + message.hashCode();
+        translatingMessages.add(messageKey);
+
+        plugin.debug("Processing translation for recipients removed from ChatControl delivery (non-player sender)");
+
+        Set<Player> needsTranslation = ConcurrentHashMap.newKeySet();
+        for (Player recipient : originalRecipients) {
+            if (currentRecipients.contains(recipient)) continue; // This player got the original message
+
+            if (needsTranslationForPlayer(message, recipient)) {
+                needsTranslation.add(recipient);
+                plugin.debug("Recipient " + recipient.getName() + " needs translation");
+            } else {
+                // Send original message immediately to those who don't need translation
+                Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
+                recipient.sendMessage(originalMessage);
+                plugin.debug("Sent original message to " + recipient.getName() + " (no translation needed)");
+            }
+        }
+
+        if (!needsTranslation.isEmpty()) {
+            plugin.debug("Starting optimized ChatControl translation for " + needsTranslation.size() + " removed recipients (non-player sender)");
             translationManager.translateForMultiplePlayers(message, needsTranslation)
                     .whenComplete((results, throwable) -> {
                         translatingMessages.remove(messageKey);
@@ -297,6 +380,37 @@ public class ChatControlListener implements Listener {
         }
     }
 
+    private Component createFormattedMessage(CommandSender sender, String message, boolean isTranslated, TranslationResult result, boolean isGlobalChannel) {
+        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+
+        if (displayMode.equals("custom")) {
+            String format;
+            if (isGlobalChannel) {
+                format = plugin.getConfig().getString("translation.globalChat.globalFormat",
+                        "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
+            } else {
+                format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
+                        "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
+            }
+
+            Component hoverText = null;
+            if (isTranslated && result != null && plugin.getConfig().getBoolean("translation.display.showHover", true)) {
+                hoverText = Component.text("Original: " + result.getOriginalText())
+                        .color(NamedTextColor.GRAY)
+                        .append(Component.newline())
+                        .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
+                                .color(NamedTextColor.DARK_GRAY));
+            }
+
+            return createCustomFormattedMessage(sender, message, format, hoverText, result);
+        } else {
+            // Use standard chat format for other modes
+            String prefix = isTranslated ? "[T] " : "";
+            return Component.text("<" + sender.getName() + "> " + prefix + message)
+                    .color(NamedTextColor.WHITE);
+        }
+    }
+
     private Component createPrivateMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
         String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
 
@@ -349,6 +463,43 @@ public class ChatControlListener implements Listener {
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
         }
+
+        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+
+        if (hoverText != null) {
+            component = component.hoverEvent(HoverEvent.showText(hoverText));
+        }
+
+        return component;
+    }
+
+    private Component createCustomFormattedMessage(CommandSender sender, String message, String format, Component hoverText) {
+        return createCustomFormattedMessage(sender, message, format, hoverText, null);
+    }
+
+    private Component createCustomFormattedMessage(CommandSender sender, String message, String format, Component hoverText, TranslationResult result) {
+        String formatted = format
+                .replace("{player_name}", sender.getName())
+                .replace("{translated_message}", message)
+                .replace("{original_message}", message);
+
+        // Add translation language placeholders if available
+        if (result != null) {
+            formatted = formatted
+                    .replace("{source_language}", result.getSourceLanguage())
+                    .replace("{target_language}", result.getTargetLanguage());
+        } else {
+            // For non-translated messages, use placeholders that indicate no translation
+            formatted = formatted
+                    .replace("{source_language}", "")
+                    .replace("{target_language}", "")
+                    .replace("[{source_language} -> {target_language}]", "")
+                    .replace("[ -> ]", "");
+        }
+
+        // Note: PlaceholderAPI cannot be used with non-player senders (like Discord)
+        // If sender is a Player, we could cast it, but for non-players we skip placeholder expansion
+        // This is expected behavior for messages from Discord SRV and similar plugins
 
         Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
 
