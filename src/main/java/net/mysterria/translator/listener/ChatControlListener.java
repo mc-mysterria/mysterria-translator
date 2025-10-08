@@ -386,11 +386,11 @@ public class ChatControlListener implements Listener {
         if (displayMode.equals("custom")) {
             String format;
             if (isGlobalChannel) {
-                format = plugin.getConfig().getString("translation.globalChat.globalFormat",
-                        "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
+                format = plugin.getConfig().getString("translation.globalChat.consoleFormat",
+                        "&8[&bГ&8] &f{player_name}&7 >> &f{translated_message}");
             } else {
-                format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
-                        "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
+                format = plugin.getConfig().getString("translation.rangeChat.consoleFormat",
+                        "&8[&eР&8] &f{player_name}&7 >> &f{translated_message}");
             }
 
             Component hoverText = null;
