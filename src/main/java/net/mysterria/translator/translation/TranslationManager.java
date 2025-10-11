@@ -7,6 +7,9 @@ import net.mysterria.translator.engine.gemini.GeminiClient;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.entity.Player;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -15,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class TranslationManager {
 
@@ -22,7 +26,7 @@ public class TranslationManager {
     private final OllamaClient ollamaClient;
     private final LibreTranslateClient libreTranslateClient;
     private final GeminiClient geminiClient;
-    private final String provider;
+    private final List<String> providers; // Ordered list of providers to try
     private final ScheduledExecutorService scheduler;
     
     private final Map<String, CachedTranslation> translationCache;
@@ -39,7 +43,15 @@ public class TranslationManager {
         this.ollamaClient = ollamaClient;
         this.libreTranslateClient = libreTranslateClient;
         this.geminiClient = geminiClient;
-        this.provider = plugin.getConfig().getString("translation.provider", "ollama");
+
+        String providerConfig = plugin.getConfig().getString("translation.provider", "ollama");
+        this.providers = Arrays.stream(providerConfig.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toList());
+
+        plugin.debug("Initialized TranslationManager with providers: " + this.providers);
         this.scheduler = Executors.newScheduledThreadPool(2);
         
         this.translationCache = new ConcurrentHashMap<>();
@@ -81,7 +93,8 @@ public class TranslationManager {
         // For Gemini, use automatic language detection instead of manual detection
         String sourceLangCode;
         String sourceLangDisplay;
-        if ("gemini".equalsIgnoreCase(provider)) {
+        if (providers.contains("gemini")) {
+            // If Gemini is in the provider list, use auto-detection
             sourceLangCode = "auto";
             sourceLangDisplay = "Auto-detected";
         } else {
@@ -126,7 +139,8 @@ public class TranslationManager {
         // For Gemini, use automatic language detection instead of manual detection
         String sourceLangCode;
         String sourceLangDisplay;
-        if ("gemini".equalsIgnoreCase(provider)) {
+        if (providers.contains("gemini")) {
+            // If Gemini is in the provider list, use auto-detection
             sourceLangCode = "auto";
             sourceLangDisplay = "Auto-detected";
         } else {
@@ -205,32 +219,83 @@ public class TranslationManager {
     }
     
     private CompletableFuture<String> translateWithRetry(String message, String fromLang, String toLang, int attempt) {
-        CompletableFuture<String> translationFuture;
+        return translateWithProviderFallback(message, fromLang, toLang, 0, attempt);
+    }
 
-        if ("libretranslate".equalsIgnoreCase(provider)) {
-            translationFuture = libreTranslateClient.translateAsync(message, fromLang, toLang);
-        } else if ("gemini".equalsIgnoreCase(provider)) {
-            boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
-            if (includeContext) {
-                translationFuture = geminiClient.translateAsyncWithContext(message, fromLang, toLang);
-            } else {
-                translationFuture = geminiClient.translateAsync(message, fromLang, toLang);
-            }
-        } else {
-            translationFuture = ollamaClient.translateAsync(message, fromLang, toLang);
+    /**
+     * Attempts translation using multiple providers with automatic fallback.
+     * @param message The message to translate
+     * @param fromLang Source language code
+     * @param toLang Target language code
+     * @param providerIndex Index of current provider being tried
+     * @param retryAttempt Current retry attempt for the current provider
+     * @return CompletableFuture with the translated text, or null if all providers failed
+     */
+    private CompletableFuture<String> translateWithProviderFallback(String message, String fromLang, String toLang, int providerIndex, int retryAttempt) {
+        if (providerIndex >= providers.size()) {
+            plugin.debug("All translation providers exhausted");
+            return CompletableFuture.completedFuture(null);
         }
 
-        return translationFuture.exceptionally(throwable -> {
-            if (attempt < maxRetries) {
-                try {
-                    Thread.sleep(1000 * (attempt + 1));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        String currentProvider = providers.get(providerIndex);
+        plugin.debug("Attempting translation with provider '" + currentProvider + "' (attempt " + (retryAttempt + 1) + "/" + (maxRetries + 1) + ")");
+
+        CompletableFuture<String> translationFuture = executeTranslation(currentProvider, message, fromLang, toLang);
+
+        return translationFuture.handle((result, throwable) -> {
+            if (throwable != null) {
+                plugin.debug("Provider '" + currentProvider + "' failed: " + throwable.getMessage());
+
+                // Retry with the same provider if we haven't exhausted retries
+                if (retryAttempt < maxRetries) {
+                    plugin.debug("Retrying with provider '" + currentProvider + "' (attempt " + (retryAttempt + 2) + "/" + (maxRetries + 1) + ")");
+                    try {
+                        Thread.sleep(1000L * (retryAttempt + 1));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return translateWithProviderFallback(message, fromLang, toLang, providerIndex, retryAttempt + 1).join();
                 }
-                return translateWithRetry(message, fromLang, toLang, attempt + 1).join();
+
+                // Move to the next provider
+                plugin.debug("Moving to next provider after exhausting retries for '" + currentProvider + "'");
+                return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
             }
-            return null;
+
+            if (result != null) {
+                plugin.debug("Translation succeeded with provider '" + currentProvider + "'");
+                return result;
+            }
+
+            // Result is null, try next provider
+            plugin.debug("Provider '" + currentProvider + "' returned null, trying next provider");
+            return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
         });
+    }
+
+    /**
+     * Executes translation using the specified provider.
+     */
+    private CompletableFuture<String> executeTranslation(String provider, String message, String fromLang, String toLang) {
+        switch (provider.toLowerCase()) {
+            case "libretranslate":
+                plugin.debug("Using LibreTranslate for translation");
+                return libreTranslateClient.translateAsync(message, fromLang, toLang);
+
+            case "gemini":
+                plugin.debug("Using Gemini for translation");
+                boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
+                if (includeContext) {
+                    return geminiClient.translateAsyncWithContext(message, fromLang, toLang);
+                } else {
+                    return geminiClient.translateAsync(message, fromLang, toLang);
+                }
+
+            case "ollama":
+            default:
+                plugin.debug("Using Ollama for translation");
+                return ollamaClient.translateAsync(message, fromLang, toLang);
+        }
     }
     
     private boolean canPlayerTranslate(UUID playerId) {

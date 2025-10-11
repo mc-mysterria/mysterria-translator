@@ -95,17 +95,21 @@ public class OllamaClient {
     }
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
-        return String.format(
-                "You are a professional translator specializing in gaming terminology and casual chat. " +
-                "Translate the following %s text to %s with these guidelines:\n" +
-                "- Preserve gaming terms, slang, and context\n" +
-                "- Keep the informal tone and style\n" +
-                "- Don't translate proper nouns, player names, or game-specific terms unless contextually necessary\n" +
-                "- For ambiguous words, choose meaning based on gaming/casual chat context\n" +
-                "- Return ONLY the translated text, no explanations or quotation marks\n\n" +
-                "Text to translate: %s",
-                fromLang, toLang, text
-        );
+        return String.format("""
+        You are a professional translator specializing in gaming terminology and casual Minecraft chat.
+        Translate the following %s text to %s while following these rules strictly:
+        
+        1. Do NOT translate or modify Minecraft formatting codes (like §a, §l, §c, etc.).
+        2. Do NOT translate or modify placeholders or variables (like %%player%%, {player}, {item}, ${amount}, {0}, etc.).
+        3. Do NOT translate or modify command syntax (like /warp, /msg, /give).
+        4. Do NOT translate JSON keys or structure — only translate text values.
+        5. Preserve punctuation, spacing, capitalization, and emoji exactly as in the input.
+        6. Maintain the informal or gaming tone appropriate for in-game chat.
+        7. Do not include explanations, quotes, or additional text — return ONLY the translated content.
+        
+        Text to translate:
+        %s
+        """, fromLang, toLang, text);
     }
 
     private String extractTranslation(String response) {

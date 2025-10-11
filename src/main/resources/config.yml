@@ -36,10 +36,15 @@ translation:
   enabled: true
 
   # Translation provider: "ollama", "libretranslate", or "gemini"
-  # Switch between providers by changing this value
+  # Supports multiple providers with automatic fallback (comma-separated)
   # - "ollama": Uses local Ollama instance (AI models)
   # - "libretranslate": Uses LibreTranslate API service
   # - "gemini": Uses Google Gemini API (supports automatic language detection)
+  #
+  # Examples:
+  #   provider: "gemini"              - Single provider (no fallback)
+  #   provider: "gemini, ollama"      - Try Gemini first, fallback to Ollama if it fails
+  #   provider: "gemini, libretranslate, ollama" - Try all three in order
   provider: "ollama"
 
   # Global chat settings
