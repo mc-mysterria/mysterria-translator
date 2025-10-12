@@ -5,6 +5,9 @@ import net.mysterria.translator.engine.ollama.OllamaClient;
 import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.engine.gemini.GeminiClient;
 import net.mysterria.translator.util.LanguageDetector;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -31,12 +34,17 @@ public class TranslationManager {
     
     private final Map<String, CachedTranslation> translationCache;
     private final Map<UUID, PlayerRateLimit> rateLimits;
-    
+
     private final int cacheExpirySeconds;
     private final int rateLimitMessages;
     private final int rateLimitWindowSeconds;
     private final int minMessageLength;
     private final int maxRetries;
+
+    // Fallback notification tracking
+    private volatile String lastSuccessfulProvider = null;
+    private volatile long lastFallbackNotificationTime = 0;
+    private static final long FALLBACK_NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
     
     public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient, GeminiClient geminiClient) {
         this.plugin = plugin;
@@ -51,7 +59,6 @@ public class TranslationManager {
                 .filter(p -> !p.isEmpty())
                 .collect(Collectors.toList());
 
-        plugin.debug("Initialized TranslationManager with providers: " + this.providers);
         this.scheduler = Executors.newScheduledThreadPool(2);
         
         this.translationCache = new ConcurrentHashMap<>();
@@ -118,7 +125,7 @@ public class TranslationManager {
                 .thenApply(translation -> {
                     if (translation != null) {
                         translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                        plugin.debug("Translated: " + translation);
+                        plugin.debug("Translation result: \"" + message + "\" -> \"" + translation + "\"");
                         return TranslationResult.success(translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang));
                     } else {
                         return TranslationResult.failed(message, "Translation service unavailable");
@@ -198,7 +205,7 @@ public class TranslationManager {
                         if (translation != null) {
                             String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
                             translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                            plugin.debug("Translated: " + translation);
+                            plugin.debug("Translation result: \"" + message + "\" -> \"" + translation + "\"");
 
                             // Apply the same translation to all players with this target language
                             for (Player player : playersForLang) {
@@ -233,22 +240,17 @@ public class TranslationManager {
      */
     private CompletableFuture<String> translateWithProviderFallback(String message, String fromLang, String toLang, int providerIndex, int retryAttempt) {
         if (providerIndex >= providers.size()) {
-            plugin.debug("All translation providers exhausted");
+            plugin.debug("All translation providers failed");
             return CompletableFuture.completedFuture(null);
         }
 
         String currentProvider = providers.get(providerIndex);
-        plugin.debug("Attempting translation with provider '" + currentProvider + "' (attempt " + (retryAttempt + 1) + "/" + (maxRetries + 1) + ")");
-
         CompletableFuture<String> translationFuture = executeTranslation(currentProvider, message, fromLang, toLang);
 
         return translationFuture.handle((result, throwable) -> {
             if (throwable != null) {
-                plugin.debug("Provider '" + currentProvider + "' failed: " + throwable.getMessage());
-
                 // Retry with the same provider if we haven't exhausted retries
                 if (retryAttempt < maxRetries) {
-                    plugin.debug("Retrying with provider '" + currentProvider + "' (attempt " + (retryAttempt + 2) + "/" + (maxRetries + 1) + ")");
                     try {
                         Thread.sleep(1000L * (retryAttempt + 1));
                     } catch (InterruptedException e) {
@@ -258,18 +260,75 @@ public class TranslationManager {
                 }
 
                 // Move to the next provider
-                plugin.debug("Moving to next provider after exhausting retries for '" + currentProvider + "'");
+                plugin.debug("Provider '" + currentProvider + "' failed, trying next");
+                checkAndNotifyFallback(currentProvider, providerIndex);
                 return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
             }
 
             if (result != null) {
-                plugin.debug("Translation succeeded with provider '" + currentProvider + "'");
+                updateSuccessfulProvider(currentProvider, providerIndex);
                 return result;
             }
 
             // Result is null, try next provider
-            plugin.debug("Provider '" + currentProvider + "' returned null, trying next provider");
+            checkAndNotifyFallback(currentProvider, providerIndex);
             return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
+        });
+    }
+
+    /**
+     * Updates the last successful provider and checks if we've recovered from a fallback.
+     */
+    private void updateSuccessfulProvider(String provider, int providerIndex) {
+        String previousProvider = lastSuccessfulProvider;
+        lastSuccessfulProvider = provider;
+
+        // If we've recovered back to the primary provider, notify
+        if (previousProvider != null && !previousProvider.equals(provider) && providerIndex == 0) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastFallbackNotificationTime >= FALLBACK_NOTIFICATION_COOLDOWN_MS) {
+                lastFallbackNotificationTime = currentTime;
+                plugin.getLogger().info("Translation engine recovered: now using primary provider '" + provider + "'");
+                notifyAllPlayers(Component.text("Translation engine recovered: now using ")
+                        .color(NamedTextColor.GREEN)
+                        .append(Component.text(provider).color(NamedTextColor.YELLOW)));
+            }
+        }
+    }
+
+    /**
+     * Checks if we're falling back from the primary provider and notifies if needed.
+     */
+    private void checkAndNotifyFallback(String failedProvider, int providerIndex) {
+        // Only notify if:
+        // 1. This is the first provider (primary) that failed
+        // 2. We have more providers to try
+        // 3. Enough time has passed since the last notification
+        if (providerIndex == 0 && providerIndex + 1 < providers.size()) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastFallbackNotificationTime >= FALLBACK_NOTIFICATION_COOLDOWN_MS) {
+                lastFallbackNotificationTime = currentTime;
+                String nextProvider = providers.get(providerIndex + 1);
+                plugin.getLogger().warning("Primary translation provider '" + failedProvider + "' is unavailable. " +
+                        "Falling back to '" + nextProvider + "'. Translation quality may be degraded.");
+                notifyAllPlayers(Component.text("Primary translation provider ")
+                        .color(NamedTextColor.GOLD)
+                        .append(Component.text(failedProvider).color(NamedTextColor.YELLOW))
+                        .append(Component.text(" is unavailable. Falling back to ").color(NamedTextColor.GOLD))
+                        .append(Component.text(nextProvider).color(NamedTextColor.YELLOW))
+                        .append(Component.text(". Translation quality may be degraded.").color(NamedTextColor.GOLD)));
+            }
+        }
+    }
+
+    /**
+     * Notifies all online players with a message.
+     */
+    private void notifyAllPlayers(Component message) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                player.sendMessage(message);
+            }
         });
     }
 
@@ -279,11 +338,9 @@ public class TranslationManager {
     private CompletableFuture<String> executeTranslation(String provider, String message, String fromLang, String toLang) {
         switch (provider.toLowerCase()) {
             case "libretranslate":
-                plugin.debug("Using LibreTranslate for translation");
                 return libreTranslateClient.translateAsync(message, fromLang, toLang);
 
             case "gemini":
-                plugin.debug("Using Gemini for translation");
                 boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
                 if (includeContext) {
                     return geminiClient.translateAsyncWithContext(message, fromLang, toLang);
@@ -293,7 +350,6 @@ public class TranslationManager {
 
             case "ollama":
             default:
-                plugin.debug("Using Ollama for translation");
                 return ollamaClient.translateAsync(message, fromLang, toLang);
         }
     }
