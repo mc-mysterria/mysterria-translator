@@ -61,7 +61,7 @@ public class OllamaClient {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/generate"))
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(10))
+                .timeout(Duration.ofSeconds(30)) // make it wait longer, ollama can be slow sometimes
                 .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)));
 
         if (apiKey != null && !apiKey.isEmpty()) {
