@@ -107,6 +107,8 @@ public class OllamaClient {
         6. Maintain the informal or gaming tone appropriate for in-game chat.
         7. Do not include explanations, quotes, or additional text — return ONLY the translated content.
         
+        DON'T INCLUDE NOTES IN YOUR TEXT, JUST THE TRANSLATED CONTENT.
+        
         Text to translate:
         %s
         """, fromLang, toLang, text);
