@@ -20,6 +20,7 @@ public class OllamaClient {
     private final String apiKey;
     private final Gson gson;
     private final MysterriaTranslator plugin;
+    private final int requestTimeout;
 
     public OllamaClient(MysterriaTranslator plugin, String baseUrl, String model, String apiKey) {
         this.plugin = plugin;
@@ -27,9 +28,16 @@ public class OllamaClient {
         this.model = model;
         this.apiKey = apiKey;
         this.gson = new Gson();
+
+        // Get configurable timeouts (AI model inference can be slow, especially on CPU)
+        int connectTimeout = plugin.getConfig().getInt("translation.ollama.connectTimeout", 10);
+        this.requestTimeout = plugin.getConfig().getInt("translation.ollama.requestTimeout", 90);
+
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(connectTimeout))
                 .build();
+
+        plugin.debug("Ollama client initialized with connectTimeout=" + connectTimeout + "s, requestTimeout=" + requestTimeout + "s");
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
@@ -38,8 +46,8 @@ public class OllamaClient {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("Translation failed - " + e.getClass().getSimpleName() + ": " +
-                    (e.getMessage() != null ? e.getMessage() : "No error message") +
-                    " (Cause: " + (e.getCause() != null ? e.getCause().toString() : "Unknown") + ")");
+                             (e.getMessage() != null ? e.getMessage() : "No error message") +
+                             " (Cause: " + (e.getCause() != null ? e.getCause().toString() : "Unknown") + ")");
                 throw new RuntimeException(e);
             }
         });
@@ -61,7 +69,7 @@ public class OllamaClient {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/generate"))
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(30)) // make it wait longer, ollama can be slow sometimes
+                .timeout(Duration.ofSeconds(requestTimeout))
                 .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)));
 
         if (apiKey != null && !apiKey.isEmpty()) {
@@ -96,22 +104,23 @@ public class OllamaClient {
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
         return String.format("""
-        You are a professional translator specializing in gaming terminology and casual Minecraft chat.
-        Translate the following %s text to %s while following these rules strictly:
-        
-        1. Do NOT translate or modify Minecraft formatting codes (like §a, §l, §c, etc.).
-        2. Do NOT translate or modify placeholders or variables (like %%player%%, {player}, {item}, ${amount}, {0}, etc.).
-        3. Do NOT translate or modify command syntax (like /warp, /msg, /give).
-        4. Do NOT translate JSON keys or structure — only translate text values.
-        5. Preserve punctuation, spacing, capitalization, and emoji exactly as in the input.
-        6. Maintain the informal or gaming tone appropriate for in-game chat.
-        7. Do not include explanations, quotes, or additional text — return ONLY the translated content.
-        
-        DON'T INCLUDE NOTES IN YOUR TEXT, JUST THE TRANSLATED CONTENT.
-        
-        Text to translate:
-        %s
-        """, fromLang, toLang, text);
+                You are a professional translator specializing in gaming terminology and casual Minecraft chat.
+                Translate the following %s text to %s while following these rules strictly:
+                
+                1. Provide a direct translation of the text ONLY — do NOT add, remove, or change any content.
+                2. Do NOT translate or modify placeholders or variables (like %%player%%, {player}, {item}, ${amount}, {0}, etc.).
+                3. Do NOT translate or modify command syntax (like /warp, /msg, /give).
+                4. Do NOT translate JSON keys or structure — only translate text values.
+                5. Preserve punctuation, spacing, capitalization, and emoji exactly as in the input.
+                6. Maintain the informal or gaming tone appropriate for in-game chat.
+                7. Do not include explanations, quotes, or additional text — return ONLY the translated content.
+                
+                DON'T INCLUDE NOTES IN YOUR TEXT, JUST THE TRANSLATED CONTENT.
+                DON'T INCLUDE EXPLANATIONS IN THE (), JUST THE TRANSLATED CONTENT.
+                
+                Text to translate:
+                %s
+                """, fromLang, toLang, text);
     }
 
     private String extractTranslation(String response) {

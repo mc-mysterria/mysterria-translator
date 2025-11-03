@@ -93,6 +93,8 @@ translation:
     url: "https://ollama.mysterria.net"
     model: "gemma2:2b"  # Recommended: qwen2.5:3b or gemma2:2b
     apiKey: ""  # Optional: Bearer token for authenticated Ollama instances
+    connectTimeout: 10  # Connection timeout in seconds (default: 10)
+    requestTimeout: 90  # Request timeout in seconds - AI inference can be slow (default: 90)
 
   # LibreTranslate configuration
   libretranslate:

@@ -180,6 +180,8 @@ public class GeminiClient {
 
     private String executeRequest(JsonObject jsonPayload) throws IOException, InterruptedException {
         Exception lastException = null;
+        int failedKeys = 0;
+        boolean allRateLimited = true;
 
         for (String apiKey : apiKeys) {
             try {
@@ -197,7 +199,11 @@ public class GeminiClient {
                 }
 
                 if (connection.getResponseCode() != 200) {
-                    throw new IOException("Gemini responded with status: " + connection.getResponseCode());
+                    int statusCode = connection.getResponseCode();
+                    if (statusCode != 429) {
+                        allRateLimited = false;
+                    }
+                    throw new IOException("Status " + statusCode);
                 }
 
                 StringBuilder response = new StringBuilder();
@@ -212,11 +218,20 @@ public class GeminiClient {
 
             } catch (Exception e) {
                 lastException = e;
-                if (plugin.getConfig().getBoolean("debug")) {
-                    plugin.getLogger().warning("Gemini API key failed: " + e.getMessage());
+                failedKeys++;
+                if (!e.getMessage().contains("Status 429")) {
+                    allRateLimited = false;
                 }
                 continue;
             }
+        }
+
+        // Only log once after all keys fail, and suppress rate limit spam
+        if (plugin.getConfig().getBoolean("debug") && !allRateLimited) {
+            plugin.getLogger().warning("All " + apiKeys.size() + " Gemini API key(s) failed: " +
+                (lastException != null ? lastException.getMessage() : "Unknown error"));
+        } else if (allRateLimited) {
+            plugin.debug("All Gemini API keys are rate-limited (429)");
         }
 
         throw new RuntimeException("All Gemini API keys failed", lastException);
