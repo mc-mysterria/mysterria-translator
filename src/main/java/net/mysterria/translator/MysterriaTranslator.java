@@ -3,31 +3,38 @@ package net.mysterria.translator;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.translator.command.LangCommand;
-import net.mysterria.translator.listener.ChatListener;
+import net.mysterria.translator.engine.gemini.GeminiClient;
+import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.ollama.OllamaClient;
+import net.mysterria.translator.engine.openai.OpenAIClient;
+import net.mysterria.translator.listener.BukkitChatListener;
 import net.mysterria.translator.listener.ChatControlListener;
 import net.mysterria.translator.listener.PlayerJoinListener;
 import net.mysterria.translator.manager.LangManager;
-import net.mysterria.translator.engine.ollama.OllamaClient;
-import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
-import net.mysterria.translator.engine.gemini.GeminiClient;
-import net.mysterria.translator.engine.openai.OpenAIClient;
+import net.mysterria.translator.manager.PromptManager;
 import net.mysterria.translator.placeholder.LangExpansion;
-import net.mysterria.translator.util.ConfigValidator;
 import net.mysterria.translator.storage.PlayerLangStorage;
 import net.mysterria.translator.storage.impl.MySQLPlayerLangStorage;
 import net.mysterria.translator.storage.impl.SQLitePlayerLangStorage;
 import net.mysterria.translator.storage.impl.YamlPlayerLangStorage;
+import net.mysterria.translator.translation.RateLimitManager;
 import net.mysterria.translator.translation.TranslationManager;
+import net.mysterria.translator.util.ConfigValidator;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class MysterriaTranslator extends JavaPlugin {
 
     public static MysterriaTranslator plugin;
     private LangManager langManager;
+    private PromptManager promptManager;
+    private RateLimitManager suspensionManager;
     private FileConfiguration messagesConfig;
     PlayerLangStorage storage;
     private TranslationManager translationManager;
@@ -59,19 +66,20 @@ public class MysterriaTranslator extends JavaPlugin {
 
         initDatabase();
 
-        this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+        this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
         this.libreTranslateClient = new LibreTranslateClient(this,
-            getConfig().getString("translation.libretranslate.url"),
-            getConfig().getString("translation.libretranslate.apiKey"),
-            getConfig().getInt("translation.libretranslate.alternatives", 3),
-            getConfig().getString("translation.libretranslate.format", "text"));
-        this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
-        this.openAIClient = new OpenAIClient(this,
-            getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
-            getConfig().getString("translation.openai.model", "gpt-4o-mini"),
-            getConfig().getString("translation.openai.apiKey", ""));
+                getConfig().getString("translation.libretranslate.url"),
+                getConfig().getString("translation.libretranslate.apiKey"),
+                getConfig().getInt("translation.libretranslate.alternatives", 3),
+                getConfig().getString("translation.libretranslate.format", "text"));
+        this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
+        this.openAIClient = new OpenAIClient(this, promptManager,
+                getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
+                getConfig().getString("translation.openai.model", "gpt-4o-mini"),
+                getConfig().getString("translation.openai.apiKey", ""));
         this.langManager = new LangManager(this, storage);
-        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient, openAIClient);
+        this.translationManager = new TranslationManager(this, suspensionManager,
+                ollamaClient, libreTranslateClient, geminiClient, openAIClient);
 
         langManager.loadAll();
 
@@ -91,13 +99,13 @@ public class MysterriaTranslator extends JavaPlugin {
         getCommand("lang").setExecutor(new LangCommand(langManager, this));
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
 
-        // Register ChatControl-based listener for better integration
+
         if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
             getServer().getPluginManager().registerEvents(new ChatControlListener(this, translationManager), this);
             log("Registered ChatControl integration listener.");
         } else {
-            // Fallback to Bukkit events if ChatControl is not available
-            getServer().getPluginManager().registerEvents(new ChatListener(this, translationManager), this);
+
+            getServer().getPluginManager().registerEvents(new BukkitChatListener(this, translationManager), this);
             log("ChatControl not found, using Bukkit events fallback.");
         }
 
@@ -197,34 +205,34 @@ public class MysterriaTranslator extends JavaPlugin {
     public ConfigValidator.ValidationResult reloadTranslationManager() {
         log("Reloading translation engines and manager...");
 
-        // Reload config first to ensure we have the latest values
+
         reloadConfig();
 
-        // Validate configuration
+
         ConfigValidator validator = new ConfigValidator(this);
         ConfigValidator.ValidationResult validationResult = validator.validate();
 
         if (!validationResult.isValid()) {
             getLogger().warning("Configuration validation failed! Using previous configuration.");
-            for (String error : validationResult.getErrors()) {
+            for (String error : validationResult.errors()) {
                 getLogger().warning("  - " + error);
             }
             return validationResult;
         }
 
-        // Show warnings if any
+
         if (validationResult.hasWarnings()) {
-            for (String warning : validationResult.getWarnings()) {
+            for (String warning : validationResult.warnings()) {
                 getLogger().warning("  - " + warning);
             }
         }
 
-        // Shutdown existing translation manager
+
         if (translationManager != null) {
             translationManager.shutdown();
         }
 
-        // Close old clients to release resources
+
         if (ollamaClient != null) {
             ollamaClient.close();
         }
@@ -234,35 +242,61 @@ public class MysterriaTranslator extends JavaPlugin {
         if (geminiClient != null) {
             geminiClient.close();
         }
+        if (openAIClient != null) {
+            openAIClient.close();
+        }
 
-        // Recreate clients with new configuration
+
+        this.ollamaClient = null;
+        this.libreTranslateClient = null;
+        this.geminiClient = null;
+        this.openAIClient = null;
+
+
+        if (promptManager != null) {
+            promptManager.reload();
+            log("Reloaded translation prompts");
+        }
+
+
+        int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
+        this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
+        log("Reset rate limit suspension manager (suspension duration: " + suspensionMinutes + " minutes)");
+
+
+        String providerConfig = getConfig().getString("translation.provider", "ollama");
+        List<String> enabledProviders = Arrays.stream(providerConfig.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toList());
+
+        log("Reloading with providers: " + String.join(", ", enabledProviders));
+
+
         try {
-            this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
-            this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+            this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
+            this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
             this.libreTranslateClient = new LibreTranslateClient(this,
-                getConfig().getString("translation.libretranslate.url"),
-                getConfig().getString("translation.libretranslate.apiKey"),
-                getConfig().getInt("translation.libretranslate.alternatives", 3),
-                getConfig().getString("translation.libretranslate.format", "text"));
-            this.openAIClient = new OpenAIClient(this,
-                getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
-                getConfig().getString("translation.openai.model", "gpt-4o-mini"),
-                getConfig().getString("translation.openai.apiKey", ""));
+                    getConfig().getString("translation.libretranslate.url"),
+                    getConfig().getString("translation.libretranslate.apiKey"),
+                    getConfig().getInt("translation.libretranslate.alternatives", 3),
+                    getConfig().getString("translation.libretranslate.format", "text"));
+            this.openAIClient = new OpenAIClient(this, promptManager,
+                    getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
+                    getConfig().getString("translation.openai.model", "gpt-4o-mini"),
+                    getConfig().getString("translation.openai.apiKey", ""));
 
-            // Recreate translation manager
-            this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient, openAIClient);
+            this.translationManager = new TranslationManager(this, suspensionManager,
+                    ollamaClient, libreTranslateClient, geminiClient, openAIClient);
 
-            log("Translation engines and manager successfully reloaded with provider: " + getConfig().getString("translation.provider", "ollama"));
+            log("Translation engines and manager successfully reloaded");
         } catch (Exception e) {
             getLogger().severe("Failed to reinitialize translation engines: " + e.getMessage());
-            e.printStackTrace();
+            getLogger().info(Arrays.toString(e.getStackTrace()));
         }
 
         return validationResult;
-    }
-
-    public TranslationManager getTranslationManager() {
-        return translationManager;
     }
 
 }

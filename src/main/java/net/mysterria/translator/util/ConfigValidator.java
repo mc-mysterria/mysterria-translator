@@ -4,10 +4,6 @@ import net.mysterria.translator.MysterriaTranslator;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,13 +33,13 @@ public class ConfigValidator {
         errors.clear();
         warnings.clear();
 
-        // Validate translation enabled
+
         boolean translationEnabled = plugin.getConfig().getBoolean("translation.enabled", true);
         if (!translationEnabled) {
             warnings.add("Translation is disabled in config");
         }
 
-        // Validate providers
+
         String providerString = plugin.getConfig().getString("translation.provider", "ollama");
         List<String> providers = parseProviders(providerString);
 
@@ -55,7 +51,7 @@ public class ConfigValidator {
             }
         }
 
-        // Validate cache and rate limit settings
+
         validateNumericSetting("translation.cacheExpirySeconds", 1, 3600);
         validateNumericSetting("translation.rateLimitMessages", 1, 100);
         validateNumericSetting("translation.rateLimitWindowSeconds", 1, 300);
@@ -148,7 +144,7 @@ public class ConfigValidator {
         }
 
         List<String> apiKeys = geminiSection.getStringList("apiKeys");
-        if (apiKeys == null || apiKeys.isEmpty()) {
+        if (apiKeys.isEmpty()) {
             errors.add("Gemini: No API keys configured");
         } else {
             for (int i = 0; i < apiKeys.size(); i++) {
@@ -219,38 +215,9 @@ public class ConfigValidator {
     }
 
     /**
-     * Tests connectivity to a translation provider endpoint (optional health check).
-     * @param provider Provider name
-     * @param url Endpoint URL
-     * @return true if reachable, false otherwise
-     */
-    public boolean testConnectivity(String provider, String url) {
-        try {
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(5))
-                    .build();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(5))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() >= 200 && response.statusCode() < 500; // Accept any non-server-error response
-        } catch (Exception e) {
-            warnings.add(provider + ": Could not reach endpoint at " + url + " (" + e.getMessage() + ")");
-            return false;
-        }
-    }
-
-    /**
      * Result of configuration validation.
      */
-    public static class ValidationResult {
-        private final List<String> errors;
-        private final List<String> warnings;
-
+    public record ValidationResult(List<String> errors, List<String> warnings) {
         public ValidationResult(List<String> errors, List<String> warnings) {
             this.errors = new ArrayList<>(errors);
             this.warnings = new ArrayList<>(warnings);
@@ -258,14 +225,6 @@ public class ConfigValidator {
 
         public boolean isValid() {
             return errors.isEmpty();
-        }
-
-        public List<String> getErrors() {
-            return errors;
-        }
-
-        public List<String> getWarnings() {
-            return warnings;
         }
 
         public boolean hasWarnings() {

@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.mysterria.translator.MysterriaTranslator;
+import net.mysterria.translator.exception.RateLimitException;
+import net.mysterria.translator.manager.PromptManager;
 
 import java.io.IOException;
 import java.net.URI;
@@ -11,6 +13,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class OpenAIClient {
@@ -21,16 +25,18 @@ public class OpenAIClient {
     private final String apiKey;
     private final Gson gson;
     private final MysterriaTranslator plugin;
+    private final PromptManager promptManager;
     private final int readTimeout;
 
-    public OpenAIClient(MysterriaTranslator plugin, String baseUrl, String model, String apiKey) {
+    public OpenAIClient(MysterriaTranslator plugin, PromptManager promptManager, String baseUrl, String model, String apiKey) {
         this.plugin = plugin;
+        this.promptManager = promptManager;
         this.baseUrl = baseUrl;
         this.model = model;
         this.apiKey = apiKey;
         this.gson = new Gson();
 
-        // Get configurable timeouts
+
         int connectTimeout = plugin.getConfig().getInt("translation.openai.connectTimeout", 10);
         this.readTimeout = plugin.getConfig().getInt("translation.openai.readTimeout", 30);
 
@@ -55,10 +61,10 @@ public class OpenAIClient {
         });
     }
 
-    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException, RateLimitException {
         plugin.debug("Attempting translation to OpenAI at: " + baseUrl + "/chat/completions");
 
-        // Build messages array
+
         JsonArray messages = new JsonArray();
 
         JsonObject systemMessage = new JsonObject();
@@ -71,12 +77,12 @@ public class OpenAIClient {
         userMessage.addProperty("content", buildTranslationPrompt(text, fromLang, toLang));
         messages.add(userMessage);
 
-        // Build request body
+
         JsonObject request = new JsonObject();
         request.addProperty("model", model);
         request.add("messages", messages);
 
-        // Optional parameters - some models don't support them (e.g., o1, o3 series)
+
         if (plugin.getConfig().getBoolean("translation.openai.useTemperature", true)) {
             double temperature = plugin.getConfig().getDouble("translation.openai.temperature", 0.3);
             request.addProperty("temperature", temperature);
@@ -87,8 +93,7 @@ public class OpenAIClient {
             request.addProperty("top_p", topP);
         }
 
-        // Use max_completion_tokens (newer API standard)
-        // Only use max_tokens if explicitly configured for legacy models
+
         boolean useLegacyMaxTokens = plugin.getConfig().getBoolean("translation.openai.useLegacyMaxTokens", false);
         int maxTokens = plugin.getConfig().getInt("translation.openai.maxTokens", 1000);
         if (useLegacyMaxTokens) {
@@ -108,6 +113,13 @@ public class OpenAIClient {
         try {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
+
+            if (response.statusCode() == 429) {
+                String errorMsg = "OpenAI rate limit exceeded (HTTP 429): " + response.body();
+                plugin.debug(errorMsg);
+                throw new RateLimitException("openai", 429, errorMsg);
+            }
+
             if (response.statusCode() != 200) {
                 String errorMsg = "OpenAI responded with status: " + response.statusCode() + " - " + response.body();
                 plugin.debug(errorMsg);
@@ -116,7 +128,7 @@ public class OpenAIClient {
 
             JsonObject responseJson = gson.fromJson(response.body(), JsonObject.class);
 
-            // Extract translation from response
+
             JsonArray choices = responseJson.getAsJsonArray("choices");
             if (choices == null || choices.isEmpty()) {
                 throw new IOException("OpenAI returned no choices in response");
@@ -140,25 +152,16 @@ public class OpenAIClient {
     }
 
     private String buildSystemPrompt() {
-        return """
-                You are a professional translator specializing in gaming terminology and casual Minecraft chat.
-                Your role is to provide accurate, natural translations while preserving game-specific elements.
-                Always respond with ONLY the translated text, without any explanations, notes, or additional content.
-                """;
+        return promptManager.getPrompt("openai.systemPrompt", new HashMap<>());
     }
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
-        return String.format("""
-                Translate from %s to %s. Follow these rules strictly:
-                1) Directly translate content only; do not add, remove, or change anything.
-                2) Do not translate placeholders/variables (like %%player%%, {player}, {item}, ${amount}, {0}) or command syntax (e.g. /warp, /msg).
-                3) Only translate text values; do not modify JSON keys or structure.
-                4) Preserve punctuation, spacing, capitalization, emoji, and the informal gaming tone.
-                Return ONLY the translated text — no explanations, notes, quotes, or extra content.
-                
-                Text:
-                %s
-                """, fromLang, toLang, text);
+        Map<String, String> variables = new HashMap<>();
+        variables.put("sourceLang", fromLang);
+        variables.put("targetLang", toLang);
+        variables.put("message", text);
+
+        return promptManager.getPrompt("openai.userPrompt", variables);
     }
 
     private String extractTranslation(String response) {
@@ -175,23 +178,13 @@ public class OpenAIClient {
         return cleaned;
     }
 
-    public CompletableFuture<Boolean> isAvailable() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Simple ping to models endpoint
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "/models"))
-                        .header("Authorization", "Bearer " + apiKey)
-                        .timeout(Duration.ofSeconds(3))
-                        .GET()
-                        .build();
+    /**
+     * Closes the HTTP client and releases resources.
+     */
+    public void close() {
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                return response.statusCode() == 200;
-            } catch (Exception e) {
-                return false;
-            }
-        });
+
+        plugin.debug("OpenAI client closed");
     }
 
 }

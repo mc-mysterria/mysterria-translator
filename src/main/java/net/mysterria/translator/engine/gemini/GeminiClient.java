@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.mysterria.translator.MysterriaTranslator;
+import net.mysterria.translator.exception.RateLimitException;
+import net.mysterria.translator.manager.PromptManager;
+import net.mysterria.translator.translation.RateLimitManager;
 import org.bukkit.entity.Player;
 
 import java.io.BufferedReader;
@@ -12,8 +15,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -21,17 +25,22 @@ public class GeminiClient {
 
     private final List<String> apiKeys;
     private final MysterriaTranslator plugin;
+    private final PromptManager promptManager;
+    private final RateLimitManager suspensionManager;
     private final Gson gson;
     private final String model;
     private final int connectTimeout;
     private final int readTimeout;
 
-    public GeminiClient(MysterriaTranslator plugin, List<String> apiKeys) {
+    public GeminiClient(MysterriaTranslator plugin, PromptManager promptManager,
+                        RateLimitManager suspensionManager, List<String> apiKeys) {
         this.plugin = plugin;
+        this.promptManager = promptManager;
+        this.suspensionManager = suspensionManager;
         this.apiKeys = apiKeys;
         this.gson = new Gson();
 
-        // Get configurable model and timeouts
+
         this.model = plugin.getConfig().getString("translation.gemini.model", "gemini-2.0-flash");
         this.connectTimeout = plugin.getConfig().getInt("translation.gemini.connectTimeout", 10);
         this.readTimeout = plugin.getConfig().getInt("translation.gemini.readTimeout", 15);
@@ -62,12 +71,12 @@ public class GeminiClient {
         });
     }
 
-    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+    private String translate(String text, String fromLang, String toLang) throws RateLimitException {
         JsonObject jsonPayload = createTranslationPayload(text, fromLang, toLang, false);
         return executeRequest(jsonPayload);
     }
 
-    private String translateWithContext(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+    private String translateWithContext(String text, String fromLang, String toLang) throws RateLimitException {
         JsonObject jsonPayload = createTranslationPayload(text, fromLang, toLang, true);
         return executeRequest(jsonPayload);
     }
@@ -109,37 +118,36 @@ public class GeminiClient {
     }
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang, boolean includeContext) {
-        StringBuilder prompt = new StringBuilder();
+        Map<String, String> variables = new HashMap<>();
+        variables.put("sourceLang", mapLanguageForGemini(fromLang));
+        variables.put("targetLang", mapLanguageForGemini(toLang));
+        variables.put("message", text);
+
 
         if (includeContext) {
             List<String> onlinePlayerNames = plugin.getServer().getOnlinePlayers().stream()
                     .map(Player::getName)
                     .collect(Collectors.toList());
-
-            if (!onlinePlayerNames.isEmpty()) {
-                prompt.append("Online players: ").append(String.join(", ", onlinePlayerNames)).append("\n\n");
-            }
+            variables.put("playerContext", String.join(", ", onlinePlayerNames));
         }
 
-        // Check if Gemini should auto-detect source language
-        if ("auto".equalsIgnoreCase(fromLang) || fromLang == null) {
-            prompt.append("Automatically detect the language of the following text and translate it to ")
-                  .append(mapLanguageForGemini(toLang)).append(":\n\n")
-                  .append(text);
+
+        String promptKey;
+        boolean isAutoDetect = "auto".equalsIgnoreCase(fromLang) || fromLang == null;
+
+        if (includeContext) {
+            promptKey = isAutoDetect ? "gemini.autoDetectPromptWithContext" : "gemini.translationPromptWithContext";
         } else {
-            prompt.append("Translate the following text from ").append(mapLanguageForGemini(fromLang))
-                  .append(" to ").append(mapLanguageForGemini(toLang)).append(":\n\n")
-                  .append(text);
+            promptKey = isAutoDetect ? "gemini.autoDetectPrompt" : "gemini.translationPrompt";
         }
 
-        return prompt.toString();
+        return promptManager.getPrompt(promptKey, variables);
     }
 
     private String mapLanguageForGemini(String langCode) {
         if (langCode == null) return "English";
         return switch (langCode.toLowerCase()) {
             case "ukrainian", "uk_ua", "uk" -> "Ukrainian";
-            case "english", "en_us", "en" -> "English";
             case "russian", "ru_ru", "ru" -> "Russian";
             case "spanish", "es_es", "es" -> "Spanish";
             case "french", "fr_fr", "fr" -> "French";
@@ -171,30 +179,28 @@ public class GeminiClient {
     }
 
     private String getSystemInstruction(boolean includeContext) {
-        StringBuilder instruction = new StringBuilder();
-        instruction.append("You are a professional translator for a Minecraft server chat system. ");
-        instruction.append("Your task is to translate messages between players accurately while preserving gaming context and informal tone. ");
-        instruction.append("Guidelines:\n");
-        instruction.append("- Preserve gaming terminology, slang, and Minecraft-specific terms\n");
-        instruction.append("- Keep the informal, casual tone typical of gaming chat\n");
-        instruction.append("- Don't translate proper nouns unless contextually necessary\n");
-        if (includeContext) {
-            instruction.append("- Player names in the 'Online players' list should not be translated\n");
-        }
-        instruction.append("- For ambiguous words, choose meaning based on gaming/chat context\n");
-        instruction.append("- Return ONLY the translated text, no explanations or extra formatting\n");
-        instruction.append("- If the text is already in the target language, return it unchanged\n");
-        instruction.append("- Preserve any special characters or formatting symbols");
-
-        return instruction.toString();
+        String promptKey = includeContext ? "gemini.systemInstructionWithContext" : "gemini.systemInstruction";
+        return promptManager.getPrompt(promptKey, new HashMap<>());
     }
 
-    private String executeRequest(JsonObject jsonPayload) throws IOException, InterruptedException {
+    private String executeRequest(JsonObject jsonPayload) throws RateLimitException {
         Exception lastException = null;
-        int failedKeys = 0;
-        boolean allRateLimited = true;
+        int attemptedKeys = 0;
+        int suspendedKeys = 0;
 
-        for (String apiKey : apiKeys) {
+        for (int keyIndex = 0; keyIndex < apiKeys.size(); keyIndex++) {
+            String keyIdentifier = "key-" + keyIndex;
+
+
+            if (suspensionManager != null && suspensionManager.isKeySuspended("gemini", keyIdentifier)) {
+                plugin.debug("Skipping Gemini key #" + keyIndex + " (suspended due to rate limit)");
+                suspendedKeys++;
+                continue;
+            }
+
+            String apiKey = apiKeys.get(keyIndex);
+            attemptedKeys++;
+
             try {
                 URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -209,11 +215,16 @@ public class GeminiClient {
                     os.flush();
                 }
 
-                if (connection.getResponseCode() != 200) {
-                    int statusCode = connection.getResponseCode();
-                    if (statusCode != 429) {
-                        allRateLimited = false;
-                    }
+                int statusCode = connection.getResponseCode();
+
+
+                if (statusCode == 429) {
+                    String errorMsg = "Gemini key #" + keyIndex + " rate limit exceeded (HTTP 429)";
+                    plugin.debug(errorMsg);
+                    throw new RateLimitException("gemini", keyIdentifier, 429, errorMsg);
+                }
+
+                if (statusCode != 200) {
                     throw new IOException("Status " + statusCode);
                 }
 
@@ -229,23 +240,26 @@ public class GeminiClient {
 
             } catch (Exception e) {
                 lastException = e;
-                failedKeys++;
-                if (!e.getMessage().contains("Status 429")) {
-                    allRateLimited = false;
+
+
+                if (e instanceof RateLimitException) {
+                    throw (RateLimitException) e;
                 }
-                continue;
             }
         }
 
-        // Only log once after all keys fail, and suppress rate limit spam
-        if (plugin.getConfig().getBoolean("debug") && !allRateLimited) {
-            plugin.getLogger().warning("All " + apiKeys.size() + " Gemini API key(s) failed: " +
-                (lastException != null ? lastException.getMessage() : "Unknown error"));
-        } else if (allRateLimited) {
-            plugin.debug("All Gemini API keys are rate-limited (429)");
+
+        String errorMsg;
+        if (suspendedKeys == apiKeys.size()) {
+            errorMsg = "All " + apiKeys.size() + " Gemini API key(s) are currently suspended due to rate limits";
+        } else if (attemptedKeys == 0) {
+            errorMsg = "No Gemini API keys available (all suspended)";
+        } else {
+            errorMsg = "All available Gemini API keys failed (attempted: " + attemptedKeys + ", suspended: " + suspendedKeys + ")";
         }
 
-        throw new RuntimeException("All Gemini API keys failed", lastException);
+        plugin.debug(errorMsg);
+        throw new RuntimeException(errorMsg, lastException);
     }
 
     private String extractTextFromResponse(String jsonResponse) {
@@ -286,8 +300,6 @@ public class GeminiClient {
      * Closes the client and releases resources.
      */
     public void close() {
-        // HttpURLConnection doesn't need explicit closing
-        // Resources are automatically managed
         plugin.debug("Gemini client closed");
     }
 }

@@ -3,8 +3,12 @@ package net.mysterria.translator.engine.ollama;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import net.mysterria.translator.MysterriaTranslator;
+import net.mysterria.translator.exception.RateLimitException;
+import net.mysterria.translator.manager.PromptManager;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -20,16 +24,18 @@ public class OllamaClient {
     private final String apiKey;
     private final Gson gson;
     private final MysterriaTranslator plugin;
+    private final PromptManager promptManager;
     private final int requestTimeout;
 
-    public OllamaClient(MysterriaTranslator plugin, String baseUrl, String model, String apiKey) {
+    public OllamaClient(MysterriaTranslator plugin, PromptManager promptManager, String baseUrl, String model, String apiKey) {
         this.plugin = plugin;
+        this.promptManager = promptManager;
         this.baseUrl = baseUrl;
         this.model = model;
         this.apiKey = apiKey;
         this.gson = new Gson();
 
-        // Get configurable timeouts (AI model inference can be slow, especially on CPU)
+        
         int connectTimeout = plugin.getConfig().getInt("translation.ollama.connectTimeout", 10);
         this.requestTimeout = plugin.getConfig().getInt("translation.ollama.requestTimeout", 90);
 
@@ -53,7 +59,7 @@ public class OllamaClient {
         });
     }
 
-    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException, RateLimitException {
         plugin.debug("Attempting translation to Ollama at: " + baseUrl + "/api/generate");
 
         JsonObject options = new JsonObject();
@@ -81,6 +87,13 @@ public class OllamaClient {
         try {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
+            
+            if (response.statusCode() == 429) {
+                String errorMsg = "Ollama rate limit exceeded (HTTP 429)";
+                plugin.debug(errorMsg);
+                throw new RateLimitException("ollama", 429, errorMsg);
+            }
+
             if (response.statusCode() != 200) {
                 String errorMsg = "Ollama responded with status: " + response.statusCode() + " - " + response.body();
                 plugin.debug(errorMsg);
@@ -103,24 +116,12 @@ public class OllamaClient {
     }
 
     private String buildTranslationPrompt(String text, String fromLang, String toLang) {
-        return String.format("""
-                You are a professional translator specializing in gaming terminology and casual Minecraft chat.
-                Translate the following %s text to %s while following these rules strictly:
-                
-                1. Provide a direct translation of the text ONLY — do NOT add, remove, or change any content.
-                2. Do NOT translate or modify placeholders or variables (like %%player%%, {player}, {item}, ${amount}, {0}, etc.).
-                3. Do NOT translate or modify command syntax (like /warp, /msg, /give).
-                4. Do NOT translate JSON keys or structure — only translate text values.
-                5. Preserve punctuation, spacing, capitalization, and emoji exactly as in the input.
-                6. Maintain the informal or gaming tone appropriate for in-game chat.
-                7. Do not include explanations, quotes, or additional text — return ONLY the translated content.
-                
-                DON'T INCLUDE NOTES IN YOUR TEXT, JUST THE TRANSLATED CONTENT.
-                DON'T INCLUDE EXPLANATIONS IN THE (), JUST THE TRANSLATED CONTENT.
-                
-                Text to translate:
-                %s
-                """, fromLang, toLang, text);
+        Map<String, String> variables = new HashMap<>();
+        variables.put("sourceLang", fromLang);
+        variables.put("targetLang", toLang);
+        variables.put("message", text);
+
+        return promptManager.getPrompt("ollama.prompt", variables);
     }
 
     private String extractTranslation(String response) {
@@ -128,36 +129,19 @@ public class OllamaClient {
         if (cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
             cleaned = cleaned.substring(1, cleaned.length() - 1);
         }
+
+        cleaned = cleaned.replaceAll("\\s*\\([^)]*\\)", "").trim();
+
+        cleaned = cleaned.replaceAll("\\s{2,}", " ");
+
         return cleaned;
-    }
-
-    public CompletableFuture<Boolean> isAvailable() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "/api/tags"))
-                        .timeout(Duration.ofSeconds(3))
-                        .GET();
-
-                if (apiKey != null && !apiKey.isEmpty()) {
-                    requestBuilder.header("Authorization", "Bearer " + apiKey);
-                }
-
-                HttpRequest request = requestBuilder.build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                return response.statusCode() == 200;
-            } catch (Exception e) {
-                return false;
-            }
-        });
     }
 
     /**
      * Closes the HTTP client and releases resources.
      */
     public void close() {
-        // HttpClient doesn't need explicit closing in Java 11+
-        // Resources are automatically managed
+        httpClient.close();
         plugin.debug("Ollama client closed");
     }
 }

@@ -21,7 +21,7 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class ChatListener implements Listener {
+public class BukkitChatListener implements Listener {
 
     private final MysterriaTranslator plugin;
     private final TranslationManager translationManager;
@@ -36,7 +36,7 @@ public class ChatListener implements Listener {
             "reply", "r"
     );
 
-    public ChatListener(MysterriaTranslator plugin, TranslationManager translationManager) {
+    public BukkitChatListener(MysterriaTranslator plugin, TranslationManager translationManager) {
         this.plugin = plugin;
         this.translationManager = translationManager;
         this.translatingMessages = ConcurrentHashMap.newKeySet();
@@ -60,11 +60,11 @@ public class ChatListener implements Listener {
             return;
         }
 
-        // Check if event was already cancelled (e.g., by ChatControl)
+        
         if (event.isCancelled()) {
             plugin.debug("Chat event was cancelled by another plugin, checking for global chat processing");
 
-            // Check for global chat mode
+            
             if (isGlobalChatEnabled() && isGlobalChatMessage(message)) {
                 plugin.debug("Processing cancelled global chat message from " + sender.getName());
                 processGlobalChatMessageCancelled(sender, message);
@@ -75,7 +75,7 @@ public class ChatListener implements Listener {
             return;
         }
 
-        // Check for global chat mode
+        
         if (isGlobalChatEnabled()) {
             if (isGlobalChatMessage(message)) {
                 plugin.debug("Processing global chat message from " + sender.getName());
@@ -87,7 +87,7 @@ public class ChatListener implements Listener {
                 return;
             } else {
                 plugin.debug("Message doesn't start with global chat prefix and range chat is disabled, skipping translation");
-                return; // Don't translate non-global messages when global chat is enabled but range chat is disabled
+                return; 
             }
         }
 
@@ -110,7 +110,7 @@ public class ChatListener implements Listener {
         String command = args[0].toLowerCase();
         Player sender = event.getPlayer();
 
-        // Handle regular private message commands (/msg, /tell, etc.)
+        
         if (PRIVATE_MESSAGE_COMMANDS.contains(command)) {
             if (args.length < 3) {
                 plugin.debug("Private message command has insufficient arguments for target: " + args.length);
@@ -126,7 +126,7 @@ public class ChatListener implements Listener {
             String message = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
             plugin.debug("Processing private message from " + sender.getName() + " to " + target.getName() + ": " + message);
 
-            // Track last message partners for both sender and target
+            
             lastMessagePartners.put(sender.getUniqueId(), target.getUniqueId());
             lastMessagePartners.put(target.getUniqueId(), sender.getUniqueId());
 
@@ -134,11 +134,11 @@ public class ChatListener implements Listener {
             return;
         }
 
-        // Handle reply commands (/r, /reply)
+        
         if (REPLY_COMMANDS.contains(command)) {
             plugin.debug("Detected reply command from " + sender.getName());
 
-            // Get the last message partner for this player
+            
             java.util.UUID targetUUID = lastMessagePartners.get(sender.getUniqueId());
             if (targetUUID == null) {
                 plugin.debug("No last message partner found for " + sender.getName());
@@ -154,7 +154,7 @@ public class ChatListener implements Listener {
             String message = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
             plugin.debug("Processing reply from " + sender.getName() + " to " + target.getName() + ": " + message);
 
-            // Update last message partners (reply refreshes the conversation)
+            
             lastMessagePartners.put(sender.getUniqueId(), target.getUniqueId());
             lastMessagePartners.put(target.getUniqueId(), sender.getUniqueId());
 
@@ -275,7 +275,7 @@ public class ChatListener implements Listener {
 
         if (!needsTranslationForPlayer(message, target)) {
             plugin.debug("Private message doesn't need translation for " + target.getName() + ", not sending duplicate");
-            return; // Don't send anything - the original message was already sent by the command system
+            return; 
         }
 
         translatingMessages.add(messageKey);
@@ -336,19 +336,19 @@ public class ChatListener implements Listener {
 
         Component messageContent = Component.text(result.getTranslatedText())
                 .color(NamedTextColor.WHITE);
-        if (showHover && hoverText != null) {
+        if (showHover) {
             messageContent = messageContent.hoverEvent(HoverEvent.showText(hoverText));
         }
 
         switch (displayMode.toLowerCase()) {
             case "replace":
-                // Show only translated text without indicator
+                
                 return Component.text(pmPrefix + senderFormat)
                         .color(baseColor)
                         .append(messageContent);
 
             case "separate":
-                // Separate message with indicator
+                
                 Component translationIndicator = Component.text(prefix + " ")
                         .color(color);
                 if (showHover) {
@@ -361,14 +361,14 @@ public class ChatListener implements Listener {
                         .append(messageContent);
 
             case "custom":
-                // Custom format with PlaceholderAPI support for private messages
+                
                 String customFormat = plugin.getConfig().getString("translation.display.customFormat",
                         "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
                 return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
 
             case "compact":
             default:
-                // Compact mode with small indicator
+                
                 Component indicator = Component.text("ᵀ ")
                         .color(color);
                 if (showHover) {
@@ -405,10 +405,10 @@ public class ChatListener implements Listener {
 
         switch (displayMode.toLowerCase()) {
             case "replace":
-                // Show only translated text without indicator
+                
                 Component translatedText = Component.text(result.getTranslatedText())
                         .color(NamedTextColor.WHITE);
-                if (showHover && hoverText != null) {
+                if (showHover) {
                     translatedText = translatedText.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text("<" + sender.getName() + "> ")
@@ -416,7 +416,7 @@ public class ChatListener implements Listener {
                         .append(translatedText);
 
             case "separate":
-                // Current behavior - separate message with indicator
+                
                 Component translationIndicator = Component.text(prefix + " ")
                         .color(color);
                 if (showHover) {
@@ -431,14 +431,14 @@ public class ChatListener implements Listener {
                                 .hoverEvent(showHover ? HoverEvent.showText(hoverText) : null));
 
             case "custom":
-                // Custom format with PlaceholderAPI support
+                
                 String customFormat = plugin.getConfig().getString("translation.display.customFormat",
                         "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
                 return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
 
             case "compact":
             default:
-                // Compact mode - show translation with small indicator
+                
                 Component indicator = Component.text("ᵀ ")
                         .color(color);
                 if (showHover) {
@@ -447,7 +447,7 @@ public class ChatListener implements Listener {
                 }
                 Component message = Component.text(result.getTranslatedText())
                         .color(NamedTextColor.WHITE);
-                if (showHover && hoverText != null) {
+                if (showHover) {
                     message = message.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text("<" + sender.getName() + "> ")
@@ -461,7 +461,7 @@ public class ChatListener implements Listener {
         try {
             return NamedTextColor.NAMES.value(colorString.toLowerCase());
         } catch (Exception e) {
-            return NamedTextColor.AQUA; // Default fallback
+            return NamedTextColor.AQUA; 
         }
     }
 
@@ -656,12 +656,12 @@ public class ChatListener implements Listener {
                 }
                 return createCustomGlobalMessage(sender, message, format, hoverText);
             } else {
-                // Original message format (no translation indicator for global)
-                String originalFormat = format.replace("&bГ", "&eG"); // Different color for original
+                
+                String originalFormat = format.replace("&bГ", "&eG"); 
                 return createCustomGlobalMessage(sender, message, originalFormat, null);
             }
         } else {
-            // Use regular formatting for other modes
+            
             if (isTranslated && result != null) {
                 return createTranslatedMessage(result, sender);
             } else {
@@ -697,16 +697,14 @@ public class ChatListener implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.equals(sender)) continue;
 
-            // Check world constraint
+            
             if (!crossWorld && !player.getWorld().equals(sender.getWorld())) {
                 continue;
             }
 
-            // Check distance
+            
             if (crossWorld || player.getWorld().equals(sender.getWorld())) {
-                double distance = crossWorld ?
-                    player.getLocation().distance(sender.getLocation()) :
-                    player.getLocation().distance(sender.getLocation());
+                double distance = player.getLocation().distance(sender.getLocation());
 
                 if (distance <= range) {
                     playersInRange.add(player);
@@ -724,11 +722,11 @@ public class ChatListener implements Listener {
         translatingMessages.add(messageKey);
         plugin.debug("Added range chat message to translation queue: " + messageKey);
 
-        // Get players in range
+        
         java.util.Set<Player> playersInRange = getPlayersInRange(sender);
         java.util.Set<Player> translationNeeded = new java.util.HashSet<>();
 
-        // Determine which players in range need translation
+        
         for (Player player : playersInRange) {
             if (needsTranslationForPlayer(message, player)) {
                 translationNeeded.add(player);
@@ -739,7 +737,7 @@ public class ChatListener implements Listener {
         plugin.debug("Range chat - Original audience size: " + (playersInRange.size() - translationNeeded.size()) +
                     ", Translation needed for: " + translationNeeded.size() + " players");
 
-        // Update event viewers to only include players who don't need translation
+        
         event.viewers().clear();
         for (Player player : playersInRange) {
             if (!translationNeeded.contains(player)) {
@@ -747,7 +745,7 @@ public class ChatListener implements Listener {
             }
         }
 
-        // Translate for players who need it
+        
         if (!translationNeeded.isEmpty()) {
             plugin.debug("Starting optimized range chat translation for " + translationNeeded.size() + " players");
             translationManager.translateForMultiplePlayers(message, translationNeeded)
@@ -799,7 +797,7 @@ public class ChatListener implements Listener {
         String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
-            // Use range format for custom mode
+            
             String format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
                     "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
 
@@ -815,12 +813,12 @@ public class ChatListener implements Listener {
                 }
                 return createCustomRangeMessage(sender, message, format, hoverText);
             } else {
-                // Original message format (different color for original range messages)
-                String originalFormat = format.replace("&eР", "&7R"); // Different color for original
+                
+                String originalFormat = format.replace("&eР", "&7R"); 
                 return createCustomRangeMessage(sender, message, originalFormat, null);
             }
         } else {
-            // Use regular formatting for other modes
+            
             if (isTranslated && result != null) {
                 return createTranslatedMessage(result, sender);
             } else {

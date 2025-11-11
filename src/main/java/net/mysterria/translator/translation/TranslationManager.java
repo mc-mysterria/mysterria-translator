@@ -1,39 +1,32 @@
 package net.mysterria.translator.translation;
 
-import net.mysterria.translator.MysterriaTranslator;
-import net.mysterria.translator.engine.ollama.OllamaClient;
-import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
-import net.mysterria.translator.engine.gemini.GeminiClient;
-import net.mysterria.translator.engine.openai.OpenAIClient;
-import net.mysterria.translator.util.LanguageDetector;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.mysterria.translator.MysterriaTranslator;
+import net.mysterria.translator.engine.gemini.GeminiClient;
+import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
+import net.mysterria.translator.engine.ollama.OllamaClient;
+import net.mysterria.translator.engine.openai.OpenAIClient;
+import net.mysterria.translator.exception.RateLimitException;
+import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class TranslationManager {
 
     private final MysterriaTranslator plugin;
+    private final RateLimitManager suspensionManager;
     private final OllamaClient ollamaClient;
     private final LibreTranslateClient libreTranslateClient;
     private final GeminiClient geminiClient;
     private final OpenAIClient openAIClient;
-    private final List<String> providers; // Ordered list of providers to try
+    private final List<String> providers;
     private final ScheduledExecutorService scheduler;
-    
+
     private final Map<String, CachedTranslation> translationCache;
     private final Map<UUID, PlayerRateLimit> rateLimits;
 
@@ -43,13 +36,16 @@ public class TranslationManager {
     private final int minMessageLength;
     private final int maxRetries;
 
-    // Fallback notification tracking
+
     private volatile String lastSuccessfulProvider = null;
     private volatile long lastFallbackNotificationTime = 0;
-    private static final long FALLBACK_NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
-    
-    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient, GeminiClient geminiClient, OpenAIClient openAIClient) {
+    private static final long FALLBACK_NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
+
+    public TranslationManager(MysterriaTranslator plugin, RateLimitManager suspensionManager,
+                              OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient,
+                              GeminiClient geminiClient, OpenAIClient openAIClient) {
         this.plugin = plugin;
+        this.suspensionManager = suspensionManager;
         this.ollamaClient = ollamaClient;
         this.libreTranslateClient = libreTranslateClient;
         this.geminiClient = geminiClient;
@@ -63,24 +59,24 @@ public class TranslationManager {
                 .collect(Collectors.toList());
 
         this.scheduler = Executors.newScheduledThreadPool(2);
-        
+
         this.translationCache = new ConcurrentHashMap<>();
         this.rateLimits = new ConcurrentHashMap<>();
-        
+
         this.cacheExpirySeconds = plugin.getConfig().getInt("translation.cacheExpirySeconds", 30);
         this.rateLimitMessages = plugin.getConfig().getInt("translation.rateLimitMessages", 2);
         this.rateLimitWindowSeconds = plugin.getConfig().getInt("translation.rateLimitWindowSeconds", 10);
         this.minMessageLength = plugin.getConfig().getInt("translation.minMessageLength", 3);
         this.maxRetries = plugin.getConfig().getInt("translation.maxRetries", 2);
-        
+
         startCacheCleanup();
         startRateLimitCleanup();
     }
-    
+
     public CompletableFuture<TranslationResult> translateForPlayer(String message, Player player) {
         if (message.length() < minMessageLength) {
             return CompletableFuture.completedFuture(
-                TranslationResult.noTranslation(message, "Message too short")
+                    TranslationResult.noTranslation(message, "Message too short")
             );
         }
 
@@ -88,23 +84,22 @@ public class TranslationManager {
 
         if (!LanguageDetector.needsTranslation(message, playerLocale)) {
             return CompletableFuture.completedFuture(
-                TranslationResult.noTranslation(message, "No translation needed")
+                    TranslationResult.noTranslation(message, "No translation needed")
             );
         }
 
         if (!canPlayerTranslate(player.getUniqueId())) {
             return CompletableFuture.completedFuture(
-                TranslationResult.rateLimited(message)
+                    TranslationResult.rateLimited(message)
             );
         }
 
         String targetLang = LanguageDetector.getTargetLanguage(playerLocale);
 
-        // For Gemini, use automatic language detection instead of manual detection
+
         String sourceLangCode;
         String sourceLangDisplay;
         if (providers.contains("gemini")) {
-            // If Gemini is in the provider list, use auto-detection
             sourceLangCode = "auto";
             sourceLangDisplay = "Auto-detected";
         } else {
@@ -118,18 +113,18 @@ public class TranslationManager {
 
         if (cached != null && !cached.isExpired()) {
             return CompletableFuture.completedFuture(
-                TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang))
+                    TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang))
             );
         }
 
         incrementPlayerUsage(player.getUniqueId());
 
         return translateWithRetry(message, sourceLangCode, targetLang, 0)
-                .thenApply(translation -> {
-                    if (translation != null) {
-                        translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                        plugin.debug("Translation result: \"" + message + "\" -> \"" + translation + "\"");
-                        return TranslationResult.success(translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang));
+                .thenApply(result -> {
+                    if (result.translation() != null) {
+                        translationCache.put(cacheKey, new CachedTranslation(result.translation(), System.currentTimeMillis()));
+                        plugin.debug("[" + result.providerName().toUpperCase() + "] Translation result: \"" + message + "\" -> \"" + result.translation() + "\"");
+                        return TranslationResult.success(result.translation(), message, sourceLangDisplay, getLanguageDisplayName(targetLang));
                     } else {
                         return TranslationResult.failed(message, "Translation service unavailable");
                     }
@@ -141,16 +136,16 @@ public class TranslationManager {
             Map<String, TranslationResult> results = new ConcurrentHashMap<>();
             for (Player player : players) {
                 results.put(player.getUniqueId().toString(),
-                    TranslationResult.noTranslation(message, "Message too short"));
+                        TranslationResult.noTranslation(message, "Message too short"));
             }
             return CompletableFuture.completedFuture(results);
         }
 
-        // For Gemini, use automatic language detection instead of manual detection
+
         String sourceLangCode;
         String sourceLangDisplay;
         if (providers.contains("gemini")) {
-            // If Gemini is in the provider list, use auto-detection
+
             sourceLangCode = "auto";
             sourceLangDisplay = "Auto-detected";
         } else {
@@ -161,19 +156,19 @@ public class TranslationManager {
         Map<String, Set<Player>> playersByTargetLang = new ConcurrentHashMap<>();
         Map<String, TranslationResult> results = new ConcurrentHashMap<>();
 
-        // Group players by target language and filter out those who don't need translation
+
         for (Player player : players) {
             String playerLocale = player.locale().toString().toLowerCase();
 
             if (!LanguageDetector.needsTranslation(message, playerLocale)) {
                 results.put(player.getUniqueId().toString(),
-                    TranslationResult.noTranslation(message, "No translation needed"));
+                        TranslationResult.noTranslation(message, "No translation needed"));
                 continue;
             }
 
             if (!canPlayerTranslate(player.getUniqueId())) {
                 results.put(player.getUniqueId().toString(),
-                    TranslationResult.rateLimited(message));
+                        TranslationResult.rateLimited(message));
                 continue;
             }
 
@@ -183,53 +178,66 @@ public class TranslationManager {
 
             if (cached != null && !cached.isExpired()) {
                 results.put(player.getUniqueId().toString(),
-                    TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
+                        TranslationResult.success(cached.translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
                 continue;
             }
 
-            // Group by target language for batch translation
+
             playersByTargetLang.computeIfAbsent(targetLang, k -> ConcurrentHashMap.newKeySet()).add(player);
             incrementPlayerUsage(player.getUniqueId());
         }
 
-        // If all players already have results, return immediately
+
         if (playersByTargetLang.isEmpty()) {
             return CompletableFuture.completedFuture(results);
         }
 
-        // Translate once per unique target language
+
         CompletableFuture<Void> allTranslations = CompletableFuture.allOf(
-            playersByTargetLang.entrySet().stream().map(entry -> {
-                String targetLang = entry.getKey();
-                Set<Player> playersForLang = entry.getValue();
+                playersByTargetLang.entrySet().stream().map(entry -> {
+                    String targetLang = entry.getKey();
+                    Set<Player> playersForLang = entry.getValue();
 
-                return translateWithRetry(message, sourceLangCode, targetLang, 0)
-                    .thenAccept(translation -> {
-                        if (translation != null) {
-                            String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
-                            translationCache.put(cacheKey, new CachedTranslation(translation, System.currentTimeMillis()));
-                            plugin.debug("Translation result: \"" + message + "\" -> \"" + translation + "\"");
+                    return translateWithRetry(message, sourceLangCode, targetLang, 0)
+                            .thenAccept(result -> {
+                                if (result.translation() != null) {
+                                    String cacheKey = generateCacheKey(message, sourceLangCode, targetLang);
+                                    translationCache.put(cacheKey, new CachedTranslation(result.translation(), System.currentTimeMillis()));
+                                    plugin.debug("[" + result.providerName().toUpperCase() + "] Translation result: \"" + message + "\" -> \"" + result.translation() + "\"");
 
-                            // Apply the same translation to all players with this target language
-                            for (Player player : playersForLang) {
-                                results.put(player.getUniqueId().toString(),
-                                    TranslationResult.success(translation, message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
-                            }
-                        } else {
-                            for (Player player : playersForLang) {
-                                results.put(player.getUniqueId().toString(),
-                                    TranslationResult.failed(message, "Translation service unavailable"));
-                            }
-                        }
-                    });
-            }).toArray(CompletableFuture[]::new)
+
+                                    for (Player player : playersForLang) {
+                                        results.put(player.getUniqueId().toString(),
+                                                TranslationResult.success(result.translation(), message, sourceLangDisplay, getLanguageDisplayName(targetLang)));
+                                    }
+                                } else {
+                                    for (Player player : playersForLang) {
+                                        results.put(player.getUniqueId().toString(),
+                                                TranslationResult.failed(message, "Translation service unavailable"));
+                                    }
+                                }
+                            });
+                }).toArray(CompletableFuture[]::new)
         );
 
         return allTranslations.thenApply(v -> results);
     }
-    
-    private CompletableFuture<String> translateWithRetry(String message, String fromLang, String toLang, int attempt) {
+
+    private CompletableFuture<TranslationWithProvider> translateWithRetry(String message, String fromLang, String toLang, int attempt) {
         return translateWithProviderFallback(message, fromLang, toLang, 0, attempt);
+    }
+
+    /**
+     * Internal record to track translation result with the provider that generated it.
+     */
+    private record TranslationWithProvider(String translation, String providerName) {
+        public static TranslationWithProvider of(String translation, String provider) {
+            return new TranslationWithProvider(translation, provider);
+        }
+
+        public static TranslationWithProvider failed() {
+            return new TranslationWithProvider(null, null);
+        }
     }
 
     /**
@@ -241,18 +249,36 @@ public class TranslationManager {
      * @param retryAttempt Current retry attempt for the current provider
      * @return CompletableFuture with the translated text, or null if all providers failed
      */
-    private CompletableFuture<String> translateWithProviderFallback(String message, String fromLang, String toLang, int providerIndex, int retryAttempt) {
+    private CompletableFuture<TranslationWithProvider> translateWithProviderFallback(String message, String fromLang, String toLang, int providerIndex, int retryAttempt) {
         if (providerIndex >= providers.size()) {
             plugin.debug("All translation providers failed");
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(TranslationWithProvider.failed());
         }
 
         String currentProvider = providers.get(providerIndex);
+
+
+        if (suspensionManager.isSuspended(currentProvider)) {
+            plugin.debug("Provider '" + currentProvider + "' is currently suspended due to rate limits, skipping to next provider");
+            return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0);
+        }
+
         CompletableFuture<String> translationFuture = executeTranslation(currentProvider, message, fromLang, toLang);
 
         return translationFuture.handle((result, throwable) -> {
             if (throwable != null) {
-                // Retry with the same provider if we haven't exhausted retries
+
+                Throwable cause = throwable.getCause();
+                if (cause instanceof RateLimitException rateLimitEx) {
+                    suspensionManager.suspend(rateLimitEx);
+
+
+                    plugin.debug("Provider '" + currentProvider + "' hit rate limit (429), suspended and moving to next provider");
+                    checkAndNotifyFallback(currentProvider, providerIndex);
+                    return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
+                }
+
+
                 if (retryAttempt < maxRetries) {
                     try {
                         Thread.sleep(1000L * (retryAttempt + 1));
@@ -262,7 +288,7 @@ public class TranslationManager {
                     return translateWithProviderFallback(message, fromLang, toLang, providerIndex, retryAttempt + 1).join();
                 }
 
-                // Move to the next provider
+
                 plugin.debug("Provider '" + currentProvider + "' failed, trying next");
                 checkAndNotifyFallback(currentProvider, providerIndex);
                 return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
@@ -270,10 +296,10 @@ public class TranslationManager {
 
             if (result != null) {
                 updateSuccessfulProvider(currentProvider, providerIndex);
-                return result;
+                return TranslationWithProvider.of(result, currentProvider);
             }
 
-            // Result is null, try next provider
+
             checkAndNotifyFallback(currentProvider, providerIndex);
             return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
         });
@@ -286,7 +312,7 @@ public class TranslationManager {
         String previousProvider = lastSuccessfulProvider;
         lastSuccessfulProvider = provider;
 
-        // If we've recovered back to the primary provider, notify
+
         if (previousProvider != null && !previousProvider.equals(provider) && providerIndex == 0) {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastFallbackNotificationTime >= FALLBACK_NOTIFICATION_COOLDOWN_MS) {
@@ -303,17 +329,15 @@ public class TranslationManager {
      * Checks if we're falling back from the primary provider and notifies if needed.
      */
     private void checkAndNotifyFallback(String failedProvider, int providerIndex) {
-        // Only notify if:
-        // 1. This is the first provider (primary) that failed
-        // 2. We have more providers to try
-        // 3. Enough time has passed since the last notification
+
+
         if (providerIndex == 0 && providerIndex + 1 < providers.size()) {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastFallbackNotificationTime >= FALLBACK_NOTIFICATION_COOLDOWN_MS) {
                 lastFallbackNotificationTime = currentTime;
                 String nextProvider = providers.get(providerIndex + 1);
                 plugin.getLogger().warning("Primary translation provider '" + failedProvider + "' is unavailable. " +
-                        "Falling back to '" + nextProvider + "'. Translation quality may be degraded.");
+                                           "Falling back to '" + nextProvider + "'. Translation quality may be degraded.");
                 notifyAllPlayers(Component.text("Primary translation provider ")
                         .color(NamedTextColor.GOLD)
                         .append(Component.text(failedProvider).color(NamedTextColor.YELLOW))
@@ -337,13 +361,22 @@ public class TranslationManager {
 
     /**
      * Executes translation using the specified provider.
+     * Returns null future if the provider client is not initialized.
      */
     private CompletableFuture<String> executeTranslation(String provider, String message, String fromLang, String toLang) {
         switch (provider.toLowerCase()) {
             case "libretranslate":
+                if (libreTranslateClient == null) {
+                    plugin.debug("LibreTranslate client not initialized");
+                    return CompletableFuture.completedFuture(null);
+                }
                 return libreTranslateClient.translateAsync(message, fromLang, toLang);
 
             case "gemini":
+                if (geminiClient == null) {
+                    plugin.debug("Gemini client not initialized");
+                    return CompletableFuture.completedFuture(null);
+                }
                 boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
                 if (includeContext) {
                     return geminiClient.translateAsyncWithContext(message, fromLang, toLang);
@@ -352,34 +385,42 @@ public class TranslationManager {
                 }
 
             case "openai":
+                if (openAIClient == null) {
+                    plugin.debug("OpenAI client not initialized");
+                    return CompletableFuture.completedFuture(null);
+                }
                 return openAIClient.translateAsync(message, fromLang, toLang);
 
             case "ollama":
             default:
+                if (ollamaClient == null) {
+                    plugin.debug("Ollama client not initialized");
+                    return CompletableFuture.completedFuture(null);
+                }
                 return ollamaClient.translateAsync(message, fromLang, toLang);
         }
     }
-    
+
     private boolean canPlayerTranslate(UUID playerId) {
         PlayerRateLimit limit = rateLimits.computeIfAbsent(playerId, k -> new PlayerRateLimit());
-        
+
         long currentTime = System.currentTimeMillis();
         long windowStart = currentTime - (rateLimitWindowSeconds * 1000L);
-        
+
         limit.timestamps.removeIf(timestamp -> timestamp < windowStart);
-        
+
         return limit.timestamps.size() < rateLimitMessages;
     }
-    
+
     private void incrementPlayerUsage(UUID playerId) {
         PlayerRateLimit limit = rateLimits.computeIfAbsent(playerId, k -> new PlayerRateLimit());
         limit.timestamps.add(System.currentTimeMillis());
     }
-    
+
     private String generateCacheKey(String message, String fromLang, String toLang) {
         return fromLang + ":" + toLang + ":" + message.hashCode();
     }
-    
+
     private String getLanguageDisplayName(String langCode) {
         return switch (langCode) {
             case "uk_ua" -> "Ukrainian";
@@ -413,25 +454,25 @@ public class TranslationManager {
             default -> "Unknown";
         };
     }
-    
+
     private void startCacheCleanup() {
         scheduler.scheduleAtFixedRate(() -> {
             long currentTime = System.currentTimeMillis();
             translationCache.entrySet().removeIf(entry -> entry.getValue().isExpired(currentTime, cacheExpirySeconds));
         }, cacheExpirySeconds, cacheExpirySeconds, TimeUnit.SECONDS);
     }
-    
+
     private void startRateLimitCleanup() {
         scheduler.scheduleAtFixedRate(() -> {
             long currentTime = System.currentTimeMillis();
             long windowStart = currentTime - (rateLimitWindowSeconds * 1000L);
-            
-            rateLimits.values().forEach(limit -> 
-                limit.timestamps.removeIf(timestamp -> timestamp < windowStart)
+
+            rateLimits.values().forEach(limit ->
+                    limit.timestamps.removeIf(timestamp -> timestamp < windowStart)
             );
         }, rateLimitWindowSeconds, rateLimitWindowSeconds, TimeUnit.SECONDS);
     }
-    
+
     public void shutdown() {
         scheduler.shutdown();
         try {
@@ -443,30 +484,23 @@ public class TranslationManager {
             Thread.currentThread().interrupt();
         }
     }
-    
+
     public void clearCache() {
         translationCache.clear();
         rateLimits.clear();
     }
-    
-    private static class CachedTranslation {
-        final String translation;
-        final long timestamp;
-        
-        CachedTranslation(String translation, long timestamp) {
-            this.translation = translation;
-            this.timestamp = timestamp;
-        }
-        
+
+    private record CachedTranslation(String translation, long timestamp) {
+
         boolean isExpired() {
             return isExpired(System.currentTimeMillis(), 30);
         }
-        
+
         boolean isExpired(long currentTime, int expirySeconds) {
             return (currentTime - timestamp) > (expirySeconds * 1000L);
         }
     }
-    
+
     private static class PlayerRateLimit {
         final java.util.List<Long> timestamps = new java.util.concurrent.CopyOnWriteArrayList<>();
     }

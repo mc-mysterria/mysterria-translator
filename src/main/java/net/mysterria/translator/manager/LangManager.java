@@ -159,8 +159,7 @@ public class LangManager {
         translationCache.put(cacheKey, translation);
 
         String processedTranslation = PlaceholderAPI.setPlaceholders(player, translation);
-        String result = LEGACY_SERIALIZER.serialize(MessageSerializer.parseMessage(processedTranslation));
-        return result;
+        return LEGACY_SERIALIZER.serialize(MessageSerializer.parseMessage(processedTranslation));
     }
 
     public String getLangTranslation(String lang, String key) {

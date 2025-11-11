@@ -92,11 +92,11 @@ public class ChatControlListener implements Listener {
         Player target = event.getReceiver();
         String message = event.getMessage();
 
-        // DON'T cancel the event - let ChatControl handle it for reply tracking
-        // Instead, schedule translation to happen after ChatControl processes it
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            translatePrivateMessage(sender, target, message);
-        }, 1L); // 1 tick delay to let ChatControl finish
+        if (sender != null) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                translatePrivateMessage(sender, target, message);
+            }, 1L);
+        }
     }
 
     private void processTranslationForRemovedRecipients(Player sender, String message, Set<Player> originalRecipients, Set<Player> currentRecipients, boolean isGlobalChannel) {
@@ -106,12 +106,12 @@ public class ChatControlListener implements Listener {
         Set<Player> needsTranslation = ConcurrentHashMap.newKeySet();
         for (Player recipient : originalRecipients) {
             if (recipient.equals(sender)) continue;
-            if (currentRecipients.contains(recipient)) continue; // This player got the original message
+            if (currentRecipients.contains(recipient)) continue;
 
             if (needsTranslationForPlayer(message, recipient)) {
                 needsTranslation.add(recipient);
             } else {
-                // Send original message immediately to those who don't need translation
+
                 Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
                 recipient.sendMessage(originalMessage);
             }
@@ -163,12 +163,12 @@ public class ChatControlListener implements Listener {
 
         Set<Player> needsTranslation = ConcurrentHashMap.newKeySet();
         for (Player recipient : originalRecipients) {
-            if (currentRecipients.contains(recipient)) continue; // This player got the original message
+            if (currentRecipients.contains(recipient)) continue;
 
             if (needsTranslationForPlayer(message, recipient)) {
                 needsTranslation.add(recipient);
             } else {
-                // Send original message immediately to those who don't need translation
+
                 Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
                 recipient.sendMessage(originalMessage);
             }
@@ -218,25 +218,25 @@ public class ChatControlListener implements Listener {
         String messageKey = sender.getUniqueId() + ":" + message.hashCode();
         translatingMessages.add(messageKey);
 
-        // Send original message to sender
+
         Component senderMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
         sender.sendMessage(senderMessage);
 
         int translationCount = 0;
-        // Process each recipient
+
         for (Player recipient : recipients) {
             if (recipient.equals(sender)) continue;
 
-            // Check if this player needs translation
+
             if (needsTranslationForPlayer(message, recipient)) {
                 translationCount++;
-                // Translate for this specific player
+
                 translationManager.translateForPlayer(message, recipient)
                         .whenComplete((result, throwable) -> {
                             Bukkit.getScheduler().runTask(plugin, () -> {
                                 if (throwable != null) {
                                     plugin.debug("Translation error: " + throwable.getMessage());
-                                    // Send original message on error
+
                                     Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
                                     recipient.sendMessage(originalMessage);
                                 } else if (result.wasTranslated()) {
@@ -249,7 +249,7 @@ public class ChatControlListener implements Listener {
                             });
                         });
             } else {
-                // Send original message directly
+
                 Component originalMessage = createFormattedMessage(sender, message, false, null, isGlobalChannel);
                 recipient.sendMessage(originalMessage);
             }
@@ -275,7 +275,7 @@ public class ChatControlListener implements Listener {
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             if (throwable != null) {
                                 plugin.debug("Translation error: " + throwable.getMessage());
-                                // Send original message on error
+
                                 Component originalMessage = createPrivateMessage(sender, message, false, null);
                                 target.sendMessage(originalMessage);
                             } else if (result.wasTranslated()) {
@@ -289,7 +289,7 @@ public class ChatControlListener implements Listener {
                     });
         } else {
             translatingMessages.remove(messageKey);
-            // Don't send anything - ChatControl already sent the original private message
+
         }
     }
 
@@ -298,10 +298,9 @@ public class ChatControlListener implements Listener {
     }
 
     private boolean isGlobalChannel(String channelName) {
-        // Common global channel names - adjust based on your ChatControl setup
         return channelName.equalsIgnoreCase("global") ||
                channelName.equalsIgnoreCase("g") ||
-               channelName.equalsIgnoreCase("mundo") || // Spanish for world
+               channelName.equalsIgnoreCase("mundo") ||
                channelName.equalsIgnoreCase("world") ||
                channelName.toLowerCase().contains("global") ||
                channelName.toLowerCase().contains("world");
@@ -331,7 +330,7 @@ public class ChatControlListener implements Listener {
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
         } else {
-            // Use standard chat format for other modes
+
             String prefix = isTranslated ? "[T] " : "";
             return Component.text("<" + sender.getName() + "> " + prefix + message)
                     .color(NamedTextColor.WHITE);
@@ -362,7 +361,7 @@ public class ChatControlListener implements Listener {
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
         } else {
-            // Use standard chat format for other modes
+
             String prefix = isTranslated ? "[T] " : "";
             return Component.text("<" + sender.getName() + "> " + prefix + message)
                     .color(NamedTextColor.WHITE);
@@ -387,7 +386,7 @@ public class ChatControlListener implements Listener {
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
         } else {
-            // Use standard private message format for other modes
+
             String prefix = isTranslated ? "[T] " : "";
             return Component.text("[PM] " + sender.getName() + ": " + prefix + message)
                     .color(NamedTextColor.LIGHT_PURPLE);
@@ -404,13 +403,13 @@ public class ChatControlListener implements Listener {
                 .replace("{translated_message}", message)
                 .replace("{original_message}", message);
 
-        // Add translation language placeholders if available
+
         if (result != null) {
             formatted = formatted
                     .replace("{source_language}", result.getSourceLanguage())
                     .replace("{target_language}", result.getTargetLanguage());
         } else {
-            // For non-translated messages, use placeholders that indicate no translation
+
             formatted = formatted
                     .replace("{source_language}", "")
                     .replace("{target_language}", "")
@@ -441,23 +440,19 @@ public class ChatControlListener implements Listener {
                 .replace("{translated_message}", message)
                 .replace("{original_message}", message);
 
-        // Add translation language placeholders if available
+
         if (result != null) {
             formatted = formatted
                     .replace("{source_language}", result.getSourceLanguage())
                     .replace("{target_language}", result.getTargetLanguage());
         } else {
-            // For non-translated messages, use placeholders that indicate no translation
+
             formatted = formatted
                     .replace("{source_language}", "")
                     .replace("{target_language}", "")
                     .replace("[{source_language} -> {target_language}]", "")
                     .replace("[ -> ]", "");
         }
-
-        // Note: PlaceholderAPI cannot be used with non-player senders (like Discord)
-        // If sender is a Player, we could cast it, but for non-players we skip placeholder expansion
-        // This is expected behavior for messages from Discord SRV and similar plugins
 
         Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
 

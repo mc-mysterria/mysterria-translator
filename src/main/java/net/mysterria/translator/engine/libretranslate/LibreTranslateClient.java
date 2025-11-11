@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.mysterria.translator.MysterriaTranslator;
+import net.mysterria.translator.exception.RateLimitException;
 
 import java.io.IOException;
 import java.net.URI;
@@ -32,7 +33,7 @@ public class LibreTranslateClient {
         this.format = format;
         this.gson = new Gson();
 
-        // Get configurable timeouts
+
         int connectTimeout = plugin.getConfig().getInt("translation.libretranslate.connectTimeout", 5);
         this.readTimeout = plugin.getConfig().getInt("translation.libretranslate.readTimeout", 10);
 
@@ -54,7 +55,7 @@ public class LibreTranslateClient {
         });
     }
 
-    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException {
+    private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException, RateLimitException {
         JsonObject request = new JsonObject();
         request.addProperty("q", text);
         request.addProperty("source", mapLanguageCode(fromLang));
@@ -74,6 +75,13 @@ public class LibreTranslateClient {
 
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
+
+        if (response.statusCode() == 429) {
+            String errorMsg = "LibreTranslate rate limit exceeded (HTTP 429)";
+            plugin.debug(errorMsg);
+            throw new RateLimitException("libretranslate", 429, errorMsg);
+        }
+
         if (response.statusCode() != 200) {
             throw new IOException("LibreTranslate responded with status: " + response.statusCode() + " - " + response.body());
         }
@@ -84,7 +92,7 @@ public class LibreTranslateClient {
             return responseJson.get("translatedText").getAsString();
         } else if (responseJson.has("alternatives") && responseJson.get("alternatives").isJsonArray()) {
             JsonArray alternatives = responseJson.getAsJsonArray("alternatives");
-            if (alternatives.size() > 0) {
+            if (!alternatives.isEmpty()) {
                 return alternatives.get(0).getAsString();
             }
         }
@@ -111,39 +119,11 @@ public class LibreTranslateClient {
         };
     }
 
-    public CompletableFuture<Boolean> isAvailable() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                JsonObject testRequest = new JsonObject();
-                testRequest.addProperty("q", "test");
-                testRequest.addProperty("source", "en");
-                testRequest.addProperty("target", "es");
-                testRequest.addProperty("format", "text");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("your-api-key-here")) {
-                    testRequest.addProperty("api_key", apiKey);
-                }
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl))
-                        .header("Content-Type", "application/json")
-                        .timeout(Duration.ofSeconds(5))
-                        .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(testRequest)))
-                        .build();
-
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                return response.statusCode() == 200;
-            } catch (Exception e) {
-                return false;
-            }
-        });
-    }
-
     /**
      * Closes the HTTP client and releases resources.
      */
     public void close() {
-        // HttpClient doesn't need explicit closing in Java 11+
-        // Resources are automatically managed
+        httpClient.close();
         plugin.debug("LibreTranslate client closed");
     }
 }

@@ -154,6 +154,11 @@ translation:
   minMessageLength: 3
   maxRetries: 2
 
+  # Rate limit suspension settings
+  # When an API returns 429 (Too Many Requests), suspend that engine/key for this duration
+  # This prevents hammering the API and allows rate limits to reset
+  rateLimitSuspensionMinutes: 20
+
   # Translation display configuration
   display:
     # Display mode: "separate", "replace", "compact", "custom"

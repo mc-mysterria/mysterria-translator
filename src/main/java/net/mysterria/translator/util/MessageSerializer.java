@@ -59,7 +59,6 @@ public class MessageSerializer {
             message = message.replace(key, value);
         }
 
-        String finalMessage = prefix + message;
-        return finalMessage;
+        return prefix + message;
     }
 }

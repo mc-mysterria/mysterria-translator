@@ -76,7 +76,6 @@ public class LanguageDetector {
 
         playerLocale = playerLocale.toLowerCase();
 
-        // Extended language mapping for better Gemini support
         if (playerLocale.startsWith("uk") || playerLocale.contains("ua")) {
             return "uk_ua";
         } else if (playerLocale.startsWith("ru") || playerLocale.contains("ru")) {
