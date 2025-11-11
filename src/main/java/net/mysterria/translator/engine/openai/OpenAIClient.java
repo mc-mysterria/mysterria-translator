@@ -75,16 +75,26 @@ public class OpenAIClient {
         JsonObject request = new JsonObject();
         request.addProperty("model", model);
         request.add("messages", messages);
-        request.addProperty("temperature", 0.3);
-        request.addProperty("top_p", 0.9);
+
+        // Optional parameters - some models don't support them (e.g., o1, o3 series)
+        if (plugin.getConfig().getBoolean("translation.openai.useTemperature", true)) {
+            double temperature = plugin.getConfig().getDouble("translation.openai.temperature", 0.3);
+            request.addProperty("temperature", temperature);
+        }
+
+        if (plugin.getConfig().getBoolean("translation.openai.useTopP", true)) {
+            double topP = plugin.getConfig().getDouble("translation.openai.topP", 0.9);
+            request.addProperty("top_p", topP);
+        }
 
         // Use max_completion_tokens (newer API standard)
         // Only use max_tokens if explicitly configured for legacy models
         boolean useLegacyMaxTokens = plugin.getConfig().getBoolean("translation.openai.useLegacyMaxTokens", false);
+        int maxTokens = plugin.getConfig().getInt("translation.openai.maxTokens", 1000);
         if (useLegacyMaxTokens) {
-            request.addProperty("max_tokens", 1000);
+            request.addProperty("max_tokens", maxTokens);
         } else {
-            request.addProperty("max_completion_tokens", 1000);
+            request.addProperty("max_completion_tokens", maxTokens);
         }
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
