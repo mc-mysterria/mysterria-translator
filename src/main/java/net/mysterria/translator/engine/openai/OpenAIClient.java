@@ -77,7 +77,15 @@ public class OpenAIClient {
         request.add("messages", messages);
         request.addProperty("temperature", 0.3);
         request.addProperty("top_p", 0.9);
-        request.addProperty("max_tokens", 1000);
+
+        // Use max_completion_tokens (newer API standard)
+        // Only use max_tokens if explicitly configured for legacy models
+        boolean useLegacyMaxTokens = plugin.getConfig().getBoolean("translation.openai.useLegacyMaxTokens", false);
+        if (useLegacyMaxTokens) {
+            request.addProperty("max_tokens", 1000);
+        } else {
+            request.addProperty("max_completion_tokens", 1000);
+        }
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/chat/completions"))
