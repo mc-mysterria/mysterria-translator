@@ -65,19 +65,24 @@ public class MysterriaTranslator extends JavaPlugin {
         saveDefaultExamples();
 
         initDatabase();
+        int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
+        this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
 
         this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+
         this.libreTranslateClient = new LibreTranslateClient(this,
                 getConfig().getString("translation.libretranslate.url"),
                 getConfig().getString("translation.libretranslate.apiKey"),
                 getConfig().getInt("translation.libretranslate.alternatives", 3),
                 getConfig().getString("translation.libretranslate.format", "text"));
         this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
+
         this.openAIClient = new OpenAIClient(this, promptManager,
                 getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
                 getConfig().getString("translation.openai.model", "gpt-4o-mini"),
                 getConfig().getString("translation.openai.apiKey", ""));
         this.langManager = new LangManager(this, storage);
+
         this.translationManager = new TranslationManager(this, suspensionManager,
                 ollamaClient, libreTranslateClient, geminiClient, openAIClient);
 
@@ -262,7 +267,6 @@ public class MysterriaTranslator extends JavaPlugin {
         int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
         this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
         log("Reset rate limit suspension manager (suspension duration: " + suspensionMinutes + " minutes)");
-
 
         String providerConfig = getConfig().getString("translation.provider", "ollama");
         List<String> enabledProviders = Arrays.stream(providerConfig.split(","))
