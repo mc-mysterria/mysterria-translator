@@ -10,7 +10,9 @@ import net.mysterria.translator.manager.LangManager;
 import net.mysterria.translator.engine.ollama.OllamaClient;
 import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.engine.gemini.GeminiClient;
+import net.mysterria.translator.engine.openai.OpenAIClient;
 import net.mysterria.translator.placeholder.LangExpansion;
+import net.mysterria.translator.util.ConfigValidator;
 import net.mysterria.translator.storage.PlayerLangStorage;
 import net.mysterria.translator.storage.impl.MySQLPlayerLangStorage;
 import net.mysterria.translator.storage.impl.SQLitePlayerLangStorage;
@@ -32,6 +34,7 @@ public class MysterriaTranslator extends JavaPlugin {
     private OllamaClient ollamaClient;
     private LibreTranslateClient libreTranslateClient;
     private GeminiClient geminiClient;
+    private OpenAIClient openAIClient;
 
     private final String pluginVersion = getDescription().getVersion();
 
@@ -63,8 +66,12 @@ public class MysterriaTranslator extends JavaPlugin {
             getConfig().getInt("translation.libretranslate.alternatives", 3),
             getConfig().getString("translation.libretranslate.format", "text"));
         this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
+        this.openAIClient = new OpenAIClient(this,
+            getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
+            getConfig().getString("translation.openai.model", "gpt-4o-mini"),
+            getConfig().getString("translation.openai.apiKey", ""));
         this.langManager = new LangManager(this, storage);
-        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient);
+        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient, openAIClient);
 
         langManager.loadAll();
 
@@ -183,30 +190,75 @@ public class MysterriaTranslator extends JavaPlugin {
         }
     }
 
-    public void reloadTranslationManager() {
+    /**
+     * Reloads translation engines and manager with full validation.
+     * @return ValidationResult containing errors, warnings, and success status
+     */
+    public ConfigValidator.ValidationResult reloadTranslationManager() {
         log("Reloading translation engines and manager...");
 
         // Reload config first to ensure we have the latest values
         reloadConfig();
+
+        // Validate configuration
+        ConfigValidator validator = new ConfigValidator(this);
+        ConfigValidator.ValidationResult validationResult = validator.validate();
+
+        if (!validationResult.isValid()) {
+            getLogger().warning("Configuration validation failed! Using previous configuration.");
+            for (String error : validationResult.getErrors()) {
+                getLogger().warning("  - " + error);
+            }
+            return validationResult;
+        }
+
+        // Show warnings if any
+        if (validationResult.hasWarnings()) {
+            for (String warning : validationResult.getWarnings()) {
+                getLogger().warning("  - " + warning);
+            }
+        }
 
         // Shutdown existing translation manager
         if (translationManager != null) {
             translationManager.shutdown();
         }
 
+        // Close old clients to release resources
+        if (ollamaClient != null) {
+            ollamaClient.close();
+        }
+        if (libreTranslateClient != null) {
+            libreTranslateClient.close();
+        }
+        if (geminiClient != null) {
+            geminiClient.close();
+        }
+
         // Recreate clients with new configuration
-        this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
-        this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
-        this.libreTranslateClient = new LibreTranslateClient(this,
-            getConfig().getString("translation.libretranslate.url"),
-            getConfig().getString("translation.libretranslate.apiKey"),
-            getConfig().getInt("translation.libretranslate.alternatives", 3),
-            getConfig().getString("translation.libretranslate.format", "text"));
+        try {
+            this.geminiClient = new GeminiClient(this, getConfig().getStringList("translation.gemini.apiKeys"));
+            this.ollamaClient = new OllamaClient(this, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+            this.libreTranslateClient = new LibreTranslateClient(this,
+                getConfig().getString("translation.libretranslate.url"),
+                getConfig().getString("translation.libretranslate.apiKey"),
+                getConfig().getInt("translation.libretranslate.alternatives", 3),
+                getConfig().getString("translation.libretranslate.format", "text"));
+            this.openAIClient = new OpenAIClient(this,
+                getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
+                getConfig().getString("translation.openai.model", "gpt-4o-mini"),
+                getConfig().getString("translation.openai.apiKey", ""));
 
-        // Recreate translation manager
-        this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient);
+            // Recreate translation manager
+            this.translationManager = new TranslationManager(this, ollamaClient, libreTranslateClient, geminiClient, openAIClient);
 
-        log("Translation engines and manager successfully reloaded with provider: " + getConfig().getString("translation.provider", "ollama"));
+            log("Translation engines and manager successfully reloaded with provider: " + getConfig().getString("translation.provider", "ollama"));
+        } catch (Exception e) {
+            getLogger().severe("Failed to reinitialize translation engines: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return validationResult;
     }
 
     public TranslationManager getTranslationManager() {

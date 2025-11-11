@@ -22,6 +22,7 @@ public class LibreTranslateClient {
     private final String format;
     private final Gson gson;
     private final MysterriaTranslator plugin;
+    private final int readTimeout;
 
     public LibreTranslateClient(MysterriaTranslator plugin, String baseUrl, String apiKey, int alternatives, String format) {
         this.plugin = plugin;
@@ -30,9 +31,16 @@ public class LibreTranslateClient {
         this.alternatives = alternatives;
         this.format = format;
         this.gson = new Gson();
+
+        // Get configurable timeouts
+        int connectTimeout = plugin.getConfig().getInt("translation.libretranslate.connectTimeout", 5);
+        this.readTimeout = plugin.getConfig().getInt("translation.libretranslate.readTimeout", 10);
+
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(connectTimeout))
                 .build();
+
+        plugin.debug("LibreTranslate client initialized with connectTimeout=" + connectTimeout + "s, readTimeout=" + readTimeout + "s");
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
@@ -60,7 +68,7 @@ public class LibreTranslateClient {
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl))
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(10))
+                .timeout(Duration.ofSeconds(readTimeout))
                 .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
                 .build();
 
@@ -128,5 +136,14 @@ public class LibreTranslateClient {
                 return false;
             }
         });
+    }
+
+    /**
+     * Closes the HTTP client and releases resources.
+     */
+    public void close() {
+        // HttpClient doesn't need explicit closing in Java 11+
+        // Resources are automatically managed
+        plugin.debug("LibreTranslate client closed");
     }
 }

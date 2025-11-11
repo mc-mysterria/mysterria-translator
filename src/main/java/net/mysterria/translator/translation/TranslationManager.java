@@ -4,6 +4,7 @@ import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.engine.ollama.OllamaClient;
 import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.engine.gemini.GeminiClient;
+import net.mysterria.translator.engine.openai.OpenAIClient;
 import net.mysterria.translator.util.LanguageDetector;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -29,6 +30,7 @@ public class TranslationManager {
     private final OllamaClient ollamaClient;
     private final LibreTranslateClient libreTranslateClient;
     private final GeminiClient geminiClient;
+    private final OpenAIClient openAIClient;
     private final List<String> providers; // Ordered list of providers to try
     private final ScheduledExecutorService scheduler;
     
@@ -46,11 +48,12 @@ public class TranslationManager {
     private volatile long lastFallbackNotificationTime = 0;
     private static final long FALLBACK_NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
     
-    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient, GeminiClient geminiClient) {
+    public TranslationManager(MysterriaTranslator plugin, OllamaClient ollamaClient, LibreTranslateClient libreTranslateClient, GeminiClient geminiClient, OpenAIClient openAIClient) {
         this.plugin = plugin;
         this.ollamaClient = ollamaClient;
         this.libreTranslateClient = libreTranslateClient;
         this.geminiClient = geminiClient;
+        this.openAIClient = openAIClient;
 
         String providerConfig = plugin.getConfig().getString("translation.provider", "ollama");
         this.providers = Arrays.stream(providerConfig.split(","))
@@ -347,6 +350,9 @@ public class TranslationManager {
                 } else {
                     return geminiClient.translateAsync(message, fromLang, toLang);
                 }
+
+            case "openai":
+                return openAIClient.translateAsync(message, fromLang, toLang);
 
             case "ollama":
             default:

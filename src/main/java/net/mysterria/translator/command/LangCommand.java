@@ -6,6 +6,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.manager.LangManager;
 import net.mysterria.translator.util.MessageSerializer;
+import net.mysterria.translator.util.ConfigValidator;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -63,12 +64,49 @@ public class LangCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args[0].equalsIgnoreCase("reload")) {
+            sender.sendMessage(Component.text("Starting reload...").color(NamedTextColor.YELLOW));
+
+            // Reload static translations
             langManager.loadAll();
             langManager.clearCache();
-            plugin.reloadTranslationManager();
             plugin.log("Reloaded " + langManager.getAvailableLangs().size() + " languages! " + langManager.getAvailableLangs());
             plugin.log("Reloaded " + langManager.getTotalTranslationsCount() + " total translations!");
-            sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "reload_success"));
+            sender.sendMessage(Component.text("✓ Static translations reloaded").color(NamedTextColor.GREEN));
+
+            // Reload translation engines with validation
+            ConfigValidator.ValidationResult result = plugin.reloadTranslationManager();
+
+            // Display validation results
+            if (!result.isValid()) {
+                sender.sendMessage(Component.text("✗ Configuration validation failed:").color(NamedTextColor.RED));
+                for (String error : result.getErrors()) {
+                    sender.sendMessage(Component.text("  - " + error).color(NamedTextColor.RED));
+                }
+                sender.sendMessage(Component.text("Using previous configuration. Please fix errors and reload again.").color(NamedTextColor.YELLOW));
+            } else {
+                sender.sendMessage(Component.text("✓ Translation engines reloaded").color(NamedTextColor.GREEN));
+
+                // Show provider info
+                String provider = plugin.getConfig().getString("translation.provider", "ollama");
+                sender.sendMessage(Component.text("  Active providers: " + provider).color(NamedTextColor.GRAY));
+            }
+
+            // Display warnings
+            if (result.hasWarnings()) {
+                sender.sendMessage(Component.text("⚠ Configuration warnings:").color(NamedTextColor.YELLOW));
+                for (String warning : result.getWarnings()) {
+                    sender.sendMessage(Component.text("  - " + warning).color(NamedTextColor.YELLOW));
+                }
+            }
+
+            // Summary
+            sender.sendMessage(Component.empty());
+            if (result.isValid()) {
+                sender.sendMessage(Component.text("Reload completed successfully!").color(NamedTextColor.GREEN));
+            } else {
+                sender.sendMessage(Component.text("Reload completed with errors. Check logs for details.").color(NamedTextColor.RED));
+            }
+
             return true;
         }
 

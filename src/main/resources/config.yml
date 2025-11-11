@@ -35,16 +35,17 @@ translation:
   # Enable/disable automatic translation
   enabled: true
 
-  # Translation provider: "ollama", "libretranslate", or "gemini"
+  # Translation provider: "ollama", "libretranslate", "gemini", or "openai"
   # Supports multiple providers with automatic fallback (comma-separated)
   # - "ollama": Uses local Ollama instance (AI models)
   # - "libretranslate": Uses LibreTranslate API service
   # - "gemini": Uses Google Gemini API (supports automatic language detection)
+  # - "openai": Uses OpenAI API (GPT models)
   #
   # Examples:
   #   provider: "gemini"              - Single provider (no fallback)
   #   provider: "gemini, ollama"      - Try Gemini first, fallback to Ollama if it fails
-  #   provider: "gemini, libretranslate, ollama" - Try all three in order
+  #   provider: "gemini, openai, ollama" - Try all three in order
   provider: "ollama"
 
   # Global chat settings
@@ -102,6 +103,8 @@ translation:
     apiKey: "your-api-key-here"
     alternatives: 3  # Number of alternative translations to request
     format: "text"   # Format: "text" or "html"
+    connectTimeout: 5  # Connection timeout in seconds (default: 5)
+    readTimeout: 10    # Read timeout in seconds (default: 10)
 
   # Gemini configuration
   gemini:
@@ -110,8 +113,25 @@ translation:
     apiKeys:
       - "your-gemini-api-key-1"
       - "your-gemini-api-key-2"
+    # Model to use (default: gemini-2.0-flash)
+    # Options: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, etc.
+    model: "gemini-2.0-flash"
     # Enable contextual translation (includes online player names)
     includeContext: true
+    connectTimeout: 10  # Connection timeout in seconds (default: 10)
+    readTimeout: 15     # Read timeout in seconds (default: 15)
+
+  # OpenAI configuration
+  openai:
+    apiKey: "sk-..."  # Your OpenAI API key
+    # Model to use (default: gpt-4o-mini)
+    # Options: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo, etc.
+    model: "gpt-4o-mini"
+    # Base URL for OpenAI API (default: https://api.openai.com/v1)
+    # Can be changed for custom endpoints or proxies
+    baseUrl: "https://api.openai.com/v1"
+    connectTimeout: 10  # Connection timeout in seconds (default: 10)
+    readTimeout: 30     # Read timeout in seconds (default: 30)
 
   # Cache settings
   cacheExpirySeconds: 30

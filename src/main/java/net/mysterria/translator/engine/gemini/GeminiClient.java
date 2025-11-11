@@ -22,11 +22,22 @@ public class GeminiClient {
     private final List<String> apiKeys;
     private final MysterriaTranslator plugin;
     private final Gson gson;
+    private final String model;
+    private final int connectTimeout;
+    private final int readTimeout;
 
     public GeminiClient(MysterriaTranslator plugin, List<String> apiKeys) {
         this.plugin = plugin;
         this.apiKeys = apiKeys;
         this.gson = new Gson();
+
+        // Get configurable model and timeouts
+        this.model = plugin.getConfig().getString("translation.gemini.model", "gemini-2.0-flash");
+        this.connectTimeout = plugin.getConfig().getInt("translation.gemini.connectTimeout", 10);
+        this.readTimeout = plugin.getConfig().getInt("translation.gemini.readTimeout", 15);
+
+        plugin.debug("Gemini client initialized with model=" + model +
+                     ", connectTimeout=" + connectTimeout + "s, readTimeout=" + readTimeout + "s");
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
@@ -185,13 +196,13 @@ public class GeminiClient {
 
         for (String apiKey : apiKeys) {
             try {
-                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey);
+                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("POST");
                 connection.setRequestProperty("Content-Type", "application/json");
                 connection.setDoOutput(true);
-                connection.setConnectTimeout(10000);
-                connection.setReadTimeout(15000);
+                connection.setConnectTimeout(connectTimeout * 1000);
+                connection.setReadTimeout(readTimeout * 1000);
 
                 try (OutputStream os = connection.getOutputStream()) {
                     os.write(jsonPayload.toString().getBytes());
@@ -269,5 +280,14 @@ public class GeminiClient {
                 return false;
             }
         });
+    }
+
+    /**
+     * Closes the client and releases resources.
+     */
+    public void close() {
+        // HttpURLConnection doesn't need explicit closing
+        // Resources are automatically managed
+        plugin.debug("Gemini client closed");
     }
 }

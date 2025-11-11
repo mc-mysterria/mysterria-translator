@@ -151,4 +151,13 @@ public class OllamaClient {
             }
         });
     }
+
+    /**
+     * Closes the HTTP client and releases resources.
+     */
+    public void close() {
+        // HttpClient doesn't need explicit closing in Java 11+
+        // Resources are automatically managed
+        plugin.debug("Ollama client closed");
+    }
 }
