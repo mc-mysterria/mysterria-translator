@@ -67,6 +67,7 @@ public class MysterriaTranslator extends JavaPlugin {
         initDatabase();
         int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
         this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
+        this.promptManager = new PromptManager(this);
 
         this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
 
@@ -210,9 +211,7 @@ public class MysterriaTranslator extends JavaPlugin {
     public ConfigValidator.ValidationResult reloadTranslationManager() {
         log("Reloading translation engines and manager...");
 
-
         reloadConfig();
-
 
         ConfigValidator validator = new ConfigValidator(this);
         ConfigValidator.ValidationResult validationResult = validator.validate();
@@ -225,18 +224,15 @@ public class MysterriaTranslator extends JavaPlugin {
             return validationResult;
         }
 
-
         if (validationResult.hasWarnings()) {
             for (String warning : validationResult.warnings()) {
                 getLogger().warning("  - " + warning);
             }
         }
 
-
         if (translationManager != null) {
             translationManager.shutdown();
         }
-
 
         if (ollamaClient != null) {
             ollamaClient.close();
@@ -251,7 +247,6 @@ public class MysterriaTranslator extends JavaPlugin {
             openAIClient.close();
         }
 
-
         this.ollamaClient = null;
         this.libreTranslateClient = null;
         this.geminiClient = null;
@@ -262,7 +257,6 @@ public class MysterriaTranslator extends JavaPlugin {
             promptManager.reload();
             log("Reloaded translation prompts");
         }
-
 
         int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
         this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
@@ -276,7 +270,6 @@ public class MysterriaTranslator extends JavaPlugin {
                 .collect(Collectors.toList());
 
         log("Reloading with providers: " + String.join(", ", enabledProviders));
-
 
         try {
             this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
