@@ -295,11 +295,4 @@ public class GeminiClient {
             }
         });
     }
-
-    /**
-     * Closes the client and releases resources.
-     */
-    public void close() {
-        plugin.debug("Gemini client closed");
-    }
 }

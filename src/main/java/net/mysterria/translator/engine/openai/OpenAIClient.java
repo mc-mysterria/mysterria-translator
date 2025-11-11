@@ -178,13 +178,4 @@ public class OpenAIClient {
         return cleaned;
     }
 
-    /**
-     * Closes the HTTP client and releases resources.
-     */
-    public void close() {
-
-
-        plugin.debug("OpenAI client closed");
-    }
-
 }

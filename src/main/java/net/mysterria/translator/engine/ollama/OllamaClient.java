@@ -136,12 +136,4 @@ public class OllamaClient {
 
         return cleaned;
     }
-
-    /**
-     * Closes the HTTP client and releases resources.
-     */
-    public void close() {
-        httpClient.close();
-        plugin.debug("Ollama client closed");
-    }
 }

@@ -234,19 +234,6 @@ public class MysterriaTranslator extends JavaPlugin {
             translationManager.shutdown();
         }
 
-        if (ollamaClient != null) {
-            ollamaClient.close();
-        }
-        if (libreTranslateClient != null) {
-            libreTranslateClient.close();
-        }
-        if (geminiClient != null) {
-            geminiClient.close();
-        }
-        if (openAIClient != null) {
-            openAIClient.close();
-        }
-
         this.ollamaClient = null;
         this.libreTranslateClient = null;
         this.geminiClient = null;

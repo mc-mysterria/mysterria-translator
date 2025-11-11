@@ -118,12 +118,4 @@ public class LibreTranslateClient {
             default -> langCode.length() > 2 ? langCode.substring(0, 2) : langCode;
         };
     }
-
-    /**
-     * Closes the HTTP client and releases resources.
-     */
-    public void close() {
-        httpClient.close();
-        plugin.debug("LibreTranslate client closed");
-    }
 }
