@@ -35,17 +35,18 @@ translation:
   # Enable/disable automatic translation
   enabled: true
 
-  # Translation provider: "ollama", "libretranslate", "gemini", or "openai"
+  # Translation provider: "ollama", "libretranslate", "gemini", "google", or "openai"
   # Supports multiple providers with automatic fallback (comma-separated)
   # - "ollama": Uses local Ollama instance (AI models)
   # - "libretranslate": Uses LibreTranslate API service
   # - "gemini": Uses Google Gemini API (supports automatic language detection)
+  # - "google": Uses free Google Translate API (no API key required, may have rate limits)
   # - "openai": Uses OpenAI API (GPT models)
   #
   # Examples:
   #   provider: "gemini"              - Single provider (no fallback)
-  #   provider: "gemini, ollama"      - Try Gemini first, fallback to Ollama if it fails
-  #   provider: "gemini, openai, ollama" - Try all three in order
+  #   provider: "gemini, google"      - Try Gemini first, fallback to Google Translate if it fails
+  #   provider: "google, ollama"      - Try Google Translate first, fallback to Ollama
   provider: "ollama"
 
   # Global chat settings
@@ -113,13 +114,20 @@ translation:
     apiKeys:
       - "your-gemini-api-key-1"
       - "your-gemini-api-key-2"
-    # Model to use (default: gemini-2.0-flash)
-    # Options: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro, etc.
-    model: "gemini-2.0-flash"
+    # Model to use (default: gemini-1.5-flash)
+    model: "gemini-1.5-flash"
     # Enable contextual translation (includes online player names)
     includeContext: true
     connectTimeout: 10  # Connection timeout in seconds (default: 10)
     readTimeout: 15     # Read timeout in seconds (default: 15)
+
+  # Google Translate configuration (free, no API key required)
+  google:
+    # Note: This uses the unofficial free Google Translate API
+    # No API key is required, but it may have rate limits
+    # If you hit rate limits, consider using Gemini with API keys or another provider
+    connectTimeout: 5  # Connection timeout in seconds (default: 5)
+    readTimeout: 10    # Read timeout in seconds (default: 10)
 
   # OpenAI configuration
   openai:

@@ -187,6 +187,7 @@ public class GeminiClient {
         Exception lastException = null;
         int attemptedKeys = 0;
         int suspendedKeys = 0;
+        int rateLimitedKeys = 0;
 
         for (int keyIndex = 0; keyIndex < apiKeys.size(); keyIndex++) {
             String keyIdentifier = "key-" + keyIndex;
@@ -221,7 +222,16 @@ public class GeminiClient {
                 if (statusCode == 429) {
                     String errorMsg = "Gemini key #" + keyIndex + " rate limit exceeded (HTTP 429)";
                     plugin.debug(errorMsg);
-                    throw new RateLimitException("gemini", keyIdentifier, 429, errorMsg);
+                    RateLimitException rateLimitEx = new RateLimitException("gemini", keyIdentifier, 429, errorMsg);
+
+                    // Suspend this specific key
+                    if (suspensionManager != null) {
+                        suspensionManager.suspend(rateLimitEx);
+                    }
+
+                    lastException = rateLimitEx;
+                    rateLimitedKeys++;
+                    continue; // Try next key instead of throwing immediately
                 }
 
                 if (statusCode != 200) {
@@ -240,11 +250,8 @@ public class GeminiClient {
 
             } catch (Exception e) {
                 lastException = e;
-
-
-                if (e instanceof RateLimitException) {
-                    throw (RateLimitException) e;
-                }
+                // Don't re-throw RateLimitException here - continue trying other keys
+                plugin.debug("Gemini key #" + keyIndex + " failed: " + e.getMessage());
             }
         }
 
@@ -254,11 +261,20 @@ public class GeminiClient {
             errorMsg = "All " + apiKeys.size() + " Gemini API key(s) are currently suspended due to rate limits";
         } else if (attemptedKeys == 0) {
             errorMsg = "No Gemini API keys available (all suspended)";
+        } else if (rateLimitedKeys > 0 && rateLimitedKeys == attemptedKeys) {
+            errorMsg = "All " + attemptedKeys + " attempted Gemini API key(s) hit rate limits";
         } else {
-            errorMsg = "All available Gemini API keys failed (attempted: " + attemptedKeys + ", suspended: " + suspendedKeys + ")";
+            errorMsg = "All available Gemini API keys failed (attempted: " + attemptedKeys + ", suspended: " + suspendedKeys + ", rate limited: " + rateLimitedKeys + ")";
         }
 
         plugin.debug(errorMsg);
+
+        // If all attempted keys were rate limited, throw RateLimitException so the provider fallback handler
+        // knows to suspend the entire Gemini provider and move to the next provider
+        if (rateLimitedKeys > 0 && rateLimitedKeys == attemptedKeys && lastException instanceof RateLimitException) {
+            throw (RateLimitException) lastException;
+        }
+
         throw new RuntimeException(errorMsg, lastException);
     }
 

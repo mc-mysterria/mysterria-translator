@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.translator.command.LangCommand;
 import net.mysterria.translator.engine.gemini.GeminiClient;
+import net.mysterria.translator.engine.google.GoogleClient;
 import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.engine.ollama.OllamaClient;
 import net.mysterria.translator.engine.openai.OpenAIClient;
@@ -27,27 +28,30 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class MysterriaTranslator extends JavaPlugin {
 
     public static MysterriaTranslator plugin;
+
     private LangManager langManager;
     private PromptManager promptManager;
     private RateLimitManager suspensionManager;
-    private FileConfiguration messagesConfig;
-    PlayerLangStorage storage;
     private TranslationManager translationManager;
+
+    private FileConfiguration messagesConfig;
+    private PlayerLangStorage storage;
+
     private OllamaClient ollamaClient;
     private LibreTranslateClient libreTranslateClient;
     private GeminiClient geminiClient;
     private OpenAIClient openAIClient;
-
-    private final String pluginVersion = getDescription().getVersion();
+    private GoogleClient googleClient;
 
     private void startingBanner() {
         String pluginName = "MysterriaTranslator";
-        log("Starting " + pluginName + " v" + pluginVersion + " by Mysterria");
+        log("Starting " + pluginName + " by Mysterria");
         String pluginDescription = "The Multi-Language Plugin";
         log(pluginDescription);
     }
@@ -82,10 +86,13 @@ public class MysterriaTranslator extends JavaPlugin {
                 getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
                 getConfig().getString("translation.openai.model", "gpt-4o-mini"),
                 getConfig().getString("translation.openai.apiKey", ""));
+
+        this.googleClient = new GoogleClient(this);
+
         this.langManager = new LangManager(this, storage);
 
         this.translationManager = new TranslationManager(this, suspensionManager,
-                ollamaClient, libreTranslateClient, geminiClient, openAIClient);
+                ollamaClient, libreTranslateClient, geminiClient, openAIClient, googleClient);
 
         langManager.loadAll();
 
@@ -102,9 +109,8 @@ public class MysterriaTranslator extends JavaPlugin {
             Bukkit.getPluginManager().disablePlugin(this);
         }
 
-        getCommand("lang").setExecutor(new LangCommand(langManager, this));
+        Objects.requireNonNull(getCommand("lang")).setExecutor(new LangCommand(langManager, this));
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
-
 
         if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
             getServer().getPluginManager().registerEvents(new ChatControlListener(this, translationManager), this);
@@ -150,7 +156,7 @@ public class MysterriaTranslator extends JavaPlugin {
     }
 
     private void migrateYamlToStorage(PlayerLangStorage targetStorage) {
-        String storageType = getConfig().getString("storage.type").toLowerCase();
+        String storageType = Objects.requireNonNull(getConfig().getString("storage.type")).toLowerCase();
         File yamlFile = new File(getDataFolder(), "players.yml");
         if (!yamlFile.exists()) return;
         YamlPlayerLangStorage yamlStorage = new YamlPlayerLangStorage(yamlFile);
@@ -204,10 +210,13 @@ public class MysterriaTranslator extends JavaPlugin {
         }
     }
 
-    /**
-     * Reloads translation engines and manager with full validation.
-     * @return ValidationResult containing errors, warnings, and success status
-     */
+    public void reloadProviders() {
+        reloadConfig();
+        if (translationManager != null) {
+            translationManager.reloadProviders();
+        }
+    }
+
     public ConfigValidator.ValidationResult reloadTranslationManager() {
         log("Reloading translation engines and manager...");
 
@@ -238,6 +247,7 @@ public class MysterriaTranslator extends JavaPlugin {
         this.libreTranslateClient = null;
         this.geminiClient = null;
         this.openAIClient = null;
+        this.googleClient = null;
 
 
         if (promptManager != null) {
@@ -271,8 +281,12 @@ public class MysterriaTranslator extends JavaPlugin {
                     getConfig().getString("translation.openai.model", "gpt-4o-mini"),
                     getConfig().getString("translation.openai.apiKey", ""));
 
+            this.googleClient = new GoogleClient(this);
+
             this.translationManager = new TranslationManager(this, suspensionManager,
-                    ollamaClient, libreTranslateClient, geminiClient, openAIClient);
+                    ollamaClient, libreTranslateClient, geminiClient, openAIClient, googleClient);
+
+            this.translationManager.reloadProviders();
 
             log("Translation engines and manager successfully reloaded");
         } catch (Exception e) {
