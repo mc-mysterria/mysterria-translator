@@ -14,7 +14,7 @@ import java.util.List;
  */
 public class ConfigValidator {
 
-    private static final List<String> VALID_PROVIDERS = Arrays.asList("ollama", "libretranslate", "gemini", "openai");
+    private static final List<String> VALID_PROVIDERS = Arrays.asList("google", "ollama", "libretranslate", "gemini", "openai");
     private final MysterriaTranslator plugin;
     private final List<String> errors;
     private final List<String> warnings;

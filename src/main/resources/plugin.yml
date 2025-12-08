@@ -2,7 +2,8 @@ name: MysterriaTranslator
 version: '${project.version}'
 author: 'Mysterria'
 main: net.mysterria.translator.MysterriaTranslator
-depend: [ PlaceholderAPI, ChatControl ]
+depend: [ PlaceholderAPI ]
+soft-depend: [ ChatControl ]
 commands:
   lang:
     description: Main command of mtranslator
