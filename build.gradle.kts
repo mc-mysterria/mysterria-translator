@@ -24,7 +24,7 @@ repositories {
 dependencies {
     compileOnly(files("libs/ChatControl-11.5.3.jar"))
     compileOnly("me.clip:placeholderapi:2.11.6")
-    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     implementation("com.google.genai:google-genai:1.26.0")
     implementation("com.google.code.gson:gson:2.10.1")
 }
@@ -34,13 +34,13 @@ tasks.named("build") {
 }
 
 group = "net.mysterria"
-version = "2.0.0"
+version = "2.0.1"
 description = "translator"
 java.sourceCompatibility = JavaVersion.VERSION_21
 
 tasks {
     runServer {
-        minecraftVersion("1.21.8")
+        minecraftVersion("1.21.11")
     }
 }
 

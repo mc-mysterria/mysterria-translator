@@ -22,9 +22,9 @@ import java.util.concurrent.CompletableFuture;
  */
 public class GoogleClient {
 
-    private final HttpClient httpClient;
     private final MysterriaTranslator plugin;
     private final Gson gson;
+    private final int connectTimeout;
     private final int readTimeout;
     private static final String BASE_URL = "http://translate.googleapis.com/translate_a/single";
 
@@ -32,12 +32,8 @@ public class GoogleClient {
         this.plugin = plugin;
         this.gson = new Gson();
 
-        int connectTimeout = plugin.getConfig().getInt("translation.google.connectTimeout", 5);
+        this.connectTimeout = plugin.getConfig().getInt("translation.google.connectTimeout", 5);
         this.readTimeout = plugin.getConfig().getInt("translation.google.readTimeout", 10);
-
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(connectTimeout))
-                .build();
 
         plugin.debug("Google Translate client initialized with connectTimeout=" + connectTimeout + "s, readTimeout=" + readTimeout + "s");
     }
@@ -54,6 +50,10 @@ public class GoogleClient {
     }
 
     private String translate(String text, String fromLang, String toLang) throws IOException, InterruptedException, RateLimitException {
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(connectTimeout))
+                .build();
+
         // Map language codes to Google's format
         String sourceLang = mapLanguageCode(fromLang);
         String targetLang = mapLanguageCode(toLang);
