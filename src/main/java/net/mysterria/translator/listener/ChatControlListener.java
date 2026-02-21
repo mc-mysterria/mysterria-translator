@@ -8,6 +8,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.translation.TranslationManager;
 import net.mysterria.translator.translation.TranslationResult;
+import net.mysterria.translator.util.DisguiseUtil;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -332,7 +333,7 @@ public class ChatControlListener implements Listener {
         } else {
 
             String prefix = isTranslated ? "[T] " : "";
-            return Component.text("<" + sender.getName() + "> " + prefix + message)
+            return Component.text("<" + DisguiseUtil.getChatName(sender) + "> " + prefix + message)
                     .color(NamedTextColor.WHITE);
         }
     }
@@ -388,7 +389,7 @@ public class ChatControlListener implements Listener {
         } else {
 
             String prefix = isTranslated ? "[T] " : "";
-            return Component.text("[PM] " + sender.getName() + ": " + prefix + message)
+            return Component.text("[PM] " + DisguiseUtil.getChatName(sender) + ": " + prefix + message)
                     .color(NamedTextColor.LIGHT_PURPLE);
         }
     }
@@ -399,7 +400,7 @@ public class ChatControlListener implements Listener {
 
     private Component createCustomFormattedMessage(Player sender, String message, String format, Component hoverText, TranslationResult result) {
         String formatted = format
-                .replace("{player_name}", sender.getName())
+                .replace("{player_name}", DisguiseUtil.getChatName(sender))
                 .replace("{translated_message}", message)
                 .replace("{original_message}", message);
 

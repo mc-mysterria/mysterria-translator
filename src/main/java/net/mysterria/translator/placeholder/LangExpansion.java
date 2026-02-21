@@ -2,6 +2,7 @@ package net.mysterria.translator.placeholder;
 
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import net.mysterria.translator.manager.LangManager;
+import net.mysterria.translator.util.DisguiseUtil;
 import org.bukkit.entity.Player;
 
 public class LangExpansion extends PlaceholderExpansion {
@@ -35,6 +36,9 @@ public class LangExpansion extends PlaceholderExpansion {
     public String onPlaceholderRequest(Player p, String params) {
         if (params.equalsIgnoreCase("player")) {
             return langManager.getPlayerLang(p.getUniqueId());
+        }
+        if (params.equalsIgnoreCase("display_name")) {
+            return DisguiseUtil.getChatName(p);
         }
         if (params.equalsIgnoreCase("gradient_test")) {
             return "<gradient:blue:green:yellow>MysterriaTranslator</gradient>";

@@ -3,7 +3,7 @@ version: '${project.version}'
 author: 'Mysterria'
 main: net.mysterria.translator.MysterriaTranslator
 depend: [ PlaceholderAPI ]
-soft-depend: [ ChatControl ]
+soft-depend: [ ChatControl, LibsDisguises ]
 commands:
   lang:
     description: Main command of mtranslator
