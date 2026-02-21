@@ -9,6 +9,9 @@ repositories {
     mavenCentral()
     mavenLocal()
 
+    maven { url = uri("https://repo.codemc.io/repository/maven-releases/") }
+    maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
+
     flatDir {
         dirs("libs")
     }
@@ -34,6 +37,7 @@ dependencies {
     implementation("com.google.genai:google-genai:1.26.0")
     implementation("com.google.code.gson:gson:2.10.1")
     compileOnlyApi("me.libraryaddict.disguises:libsdisguises:11.0.9")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.11.1")
 }
 
 tasks.named("build") {
