@@ -25,6 +25,12 @@ public class PlayerJoinListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
+        
+        if (langManager.hasPlayerLang(uuid)) {
+            plugin.debug("Player " + player.getName() + " already has a language set: " + langManager.getPlayerLang(uuid));
+            return;
+        }
+
         plugin.debug("Setting language for player " + player.getName() + " on join.");
         String playerLocale = player.locale().toString().toLowerCase();
         String selectedLang = plugin.getConfig().getString("defaultLang");

@@ -259,6 +259,10 @@ public class BukkitChatListener implements Listener {
     }
 
     private boolean needsTranslationForPlayer(String message, Player player) {
+        if (!plugin.getLangManager().isTranslationEnabled(player.getUniqueId())) {
+            plugin.debug("Translation is disabled for player " + player.getName());
+            return false;
+        }
         boolean needs = LanguageDetector.needsTranslation(message, player.locale().toString().toLowerCase());
         plugin.debug("Translation check for " + player.getName() + " (locale: " + player.locale() + "): " + needs);
         return needs;

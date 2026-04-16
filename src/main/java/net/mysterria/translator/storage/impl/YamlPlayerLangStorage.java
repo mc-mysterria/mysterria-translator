@@ -18,7 +18,7 @@ public class YamlPlayerLangStorage implements PlayerLangStorage {
 
     @Override
     public void savePlayerLang(UUID uuid, String lang) {
-        config.set(uuid.toString(), lang);
+        config.set(uuid.toString() + ".lang", lang);
         try {
             config.save(file);
         } catch (IOException ignored) {}
@@ -26,6 +26,9 @@ public class YamlPlayerLangStorage implements PlayerLangStorage {
 
     @Override
     public String getPlayerLang(UUID uuid) {
+        if (config.isConfigurationSection(uuid.toString())) {
+            return config.getString(uuid.toString() + ".lang");
+        }
         return config.getString(uuid.toString());
     }
 
@@ -38,7 +41,11 @@ public class YamlPlayerLangStorage implements PlayerLangStorage {
     public Map<UUID, String> loadAll() {
         Map<UUID, String> map = new HashMap<>();
         for (String key : config.getKeys(false)) {
-            map.put(UUID.fromString(key), config.getString(key));
+            if (config.isConfigurationSection(key)) {
+                map.put(UUID.fromString(key), config.getString(key + ".lang"));
+            } else {
+                map.put(UUID.fromString(key), config.getString(key));
+            }
         }
         return map;
     }
@@ -49,5 +56,31 @@ public class YamlPlayerLangStorage implements PlayerLangStorage {
         try {
             config.save(file);
         } catch (IOException ignored) {}
+    }
+
+    @Override
+    public void setTranslationEnabled(UUID uuid, boolean enabled) {
+        config.set(uuid.toString() + ".enabled", enabled);
+        try {
+            config.save(file);
+        } catch (IOException ignored) {}
+    }
+
+    @Override
+    public boolean isTranslationEnabled(UUID uuid) {
+        return config.getBoolean(uuid.toString() + ".enabled", true);
+    }
+
+    @Override
+    public Map<UUID, Boolean> loadAllEnabledStatus() {
+        Map<UUID, Boolean> map = new HashMap<>();
+        for (String key : config.getKeys(false)) {
+            if (config.isConfigurationSection(key)) {
+                map.put(UUID.fromString(key), config.getBoolean(key + ".enabled", true));
+            } else {
+                map.put(UUID.fromString(key), true);
+            }
+        }
+        return map;
     }
 }

@@ -26,9 +26,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class MysterriaTranslator extends JavaPlugin {
@@ -160,10 +158,18 @@ public class MysterriaTranslator extends JavaPlugin {
         File yamlFile = new File(getDataFolder(), "players.yml");
         if (!yamlFile.exists()) return;
         YamlPlayerLangStorage yamlStorage = new YamlPlayerLangStorage(yamlFile);
-        for (java.util.Map.Entry<java.util.UUID, String> entry : yamlStorage.loadAll().entrySet()) {
+        
+        Map<UUID, String> allLangs = yamlStorage.loadAll();
+        for (java.util.Map.Entry<java.util.UUID, String> entry : allLangs.entrySet()) {
             targetStorage.savePlayerLang(entry.getKey(), entry.getValue());
         }
-        getLogger().info("Migrated " + yamlStorage.loadAll().size() + " players from YAML to " + storageType.toUpperCase());
+        
+        Map<java.util.UUID, Boolean> allStatus = yamlStorage.loadAllEnabledStatus();
+        for (java.util.Map.Entry<java.util.UUID, Boolean> entry : allStatus.entrySet()) {
+            targetStorage.setTranslationEnabled(entry.getKey(), entry.getValue());
+        }
+        
+        getLogger().info("Migrated " + allLangs.size() + " players from YAML to " + storageType.toUpperCase());
     }
 
     public FileConfiguration getMessagesConfig() {

@@ -295,6 +295,9 @@ public class ChatControlListener implements Listener {
     }
 
     private boolean needsTranslationForPlayer(String message, Player player) {
+        if (!plugin.getLangManager().isTranslationEnabled(player.getUniqueId())) {
+            return false;
+        }
         return LanguageDetector.needsTranslation(message, player.locale().toString().toLowerCase());
     }
 

@@ -19,6 +19,7 @@ public class LangManager {
     private final PlayerLangStorage playerLangStorage;
 
     public final Map<UUID, String> playerLang = new HashMap<>();
+    public final Map<UUID, Boolean> translationEnabled = new HashMap<>();
     private final Map<String, Map<String, String>> translations = new HashMap<>();
     private final Map<String, String> translationCache;
 
@@ -31,6 +32,7 @@ public class LangManager {
         this.playerLangStorage = storage;
         this.defaultLang = plugin.getConfig().getString("defaultLang");
         loadPlayerLanguages();
+        loadEnabledStatus();
         int cacheSize = plugin.getConfig().getInt("translationCacheSize", 500);
         this.translationCache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
             @Override
@@ -92,9 +94,17 @@ public class LangManager {
         playerLang.putAll(playerLangStorage.loadAll());
     }
 
+    public void loadEnabledStatus() {
+        translationEnabled.clear();
+        translationEnabled.putAll(playerLangStorage.loadAllEnabledStatus());
+    }
+
     public void savePlayerLanguages() {
         for (Map.Entry<UUID, String> entry : playerLang.entrySet()) {
             playerLangStorage.savePlayerLang(entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<UUID, Boolean> entry : translationEnabled.entrySet()) {
+            playerLangStorage.setTranslationEnabled(entry.getKey(), entry.getValue());
         }
     }
 
@@ -106,6 +116,15 @@ public class LangManager {
 
     public String getPlayerLang(UUID uuid) {
         return playerLang.get(uuid);
+    }
+
+    public void setTranslationEnabled(UUID uuid, boolean enabled) {
+        translationEnabled.put(uuid, enabled);
+        playerLangStorage.setTranslationEnabled(uuid, enabled);
+    }
+
+    public boolean isTranslationEnabled(UUID uuid) {
+        return translationEnabled.getOrDefault(uuid, true);
     }
 
     public boolean hasPlayerLang(UUID uuid) {

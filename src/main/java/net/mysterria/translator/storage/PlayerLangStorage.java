@@ -9,4 +9,8 @@ public interface PlayerLangStorage {
     boolean hasPlayerLang(UUID uuid);
     Map<UUID, String> loadAll();
     void removePlayerLang(UUID uuid);
+
+    void setTranslationEnabled(UUID uuid, boolean enabled);
+    boolean isTranslationEnabled(UUID uuid);
+    Map<UUID, Boolean> loadAllEnabledStatus();
 }

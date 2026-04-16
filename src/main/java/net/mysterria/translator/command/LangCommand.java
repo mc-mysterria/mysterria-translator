@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 public class LangCommand implements CommandExecutor, TabCompleter {
 
     private static final String PERMISSION_ADMIN = "mtranslator.admin";
-    private static final List<String> SUBCOMMANDS = Arrays.asList("help", "reload", "set", "get", "list");
+    private static final List<String> SUBCOMMANDS = Arrays.asList("help", "reload", "set", "get", "list", "toggle", "on", "off");
 
     private final LangManager langManager;
     private final MysterriaTranslator plugin;
@@ -36,18 +36,31 @@ public class LangCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        if (!sender.hasPermission(PERMISSION_ADMIN) && args.length == 0) {
-            sendVersionInfo(sender);
-            return true;
-        }
-        
+        String subcommand = (args.length == 0) ? "help" : args[0].toLowerCase();
+
         if (!sender.hasPermission(PERMISSION_ADMIN)) {
+            if (subcommand.equals("toggle") || subcommand.equals("on") || subcommand.equals("off")) {
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "only_players"));
+                    return true;
+                }
+                handleToggle((Player) sender, subcommand);
+                return true;
+            }
+
+            if (subcommand.equals("help")) {
+                handleHelp(sender);
+                return true;
+            }
+
+            if (args.length == 0) {
+                sendVersionInfo(sender);
+                return true;
+            }
+            
             sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "no_permission"));
             return true;
         }
-
-        
-        String subcommand = (args.length == 0) ? "help" : args[0].toLowerCase();
 
         switch (subcommand) {
             case "help":
@@ -65,12 +78,36 @@ public class LangCommand implements CommandExecutor, TabCompleter {
             case "list":
                 handleList(sender);
                 break;
+            case "toggle":
+            case "on":
+            case "off":
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "only_players"));
+                    return true;
+                }
+                handleToggle((Player) sender, subcommand);
+                break;
             default:
                 sender.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), "unknown_subcommand"));
                 break;
         }
 
         return true;
+    }
+
+    private void handleToggle(@NotNull Player player, @NotNull String subcommand) {
+        boolean newState;
+        if (subcommand.equals("on")) {
+            newState = true;
+        } else if (subcommand.equals("off")) {
+            newState = false;
+        } else {
+            newState = !langManager.isTranslationEnabled(player.getUniqueId());
+        }
+
+        langManager.setTranslationEnabled(player.getUniqueId(), newState);
+        String messageKey = newState ? "toggle_on" : "toggle_off";
+        player.sendMessage(MessageSerializer.getMessage(plugin.getMessagesConfig(), messageKey));
     }
 
     /**
@@ -250,16 +287,21 @@ public class LangCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public @Nullable List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String @NotNull [] args) {
-        
-        if (!sender.hasPermission(PERMISSION_ADMIN)) {
-            return new ArrayList<>();
-        }
-
         if (args.length == 1) {
             String partial = args[0].toLowerCase();
-            return SUBCOMMANDS.stream()
+            List<String> allowedSubcommands;
+            if (sender.hasPermission(PERMISSION_ADMIN)) {
+                allowedSubcommands = SUBCOMMANDS;
+            } else {
+                allowedSubcommands = Arrays.asList("help", "toggle", "on", "off");
+            }
+            return allowedSubcommands.stream()
                     .filter(cmd -> cmd.startsWith(partial))
                     .collect(Collectors.toList());
+        }
+
+        if (!sender.hasPermission(PERMISSION_ADMIN)) {
+            return new ArrayList<>();
         }
 
         if (args.length == 2) {
