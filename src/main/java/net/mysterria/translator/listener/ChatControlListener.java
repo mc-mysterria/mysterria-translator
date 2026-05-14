@@ -9,6 +9,7 @@ import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.translation.TranslationManager;
 import net.mysterria.translator.translation.TranslationResult;
 import net.mysterria.translator.util.DisguiseUtil;
+import net.mysterria.translator.util.MessageSerializer;
 import net.mysterria.translator.util.LanguageDetector;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -425,7 +426,7 @@ public class ChatControlListener implements Listener {
             formatted = PlaceholderAPI.setPlaceholders(sender, formatted);
         }
 
-        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+        Component component = MessageSerializer.parseMessage(formatted);
 
         if (hoverText != null) {
             component = component.hoverEvent(HoverEvent.showText(hoverText));
@@ -458,7 +459,7 @@ public class ChatControlListener implements Listener {
                     .replace("[ -> ]", "");
         }
 
-        Component component = LegacyComponentSerializer.legacyAmpersand().deserialize(formatted);
+        Component component = MessageSerializer.parseMessage(formatted);
 
         if (hoverText != null) {
             component = component.hoverEvent(HoverEvent.showText(hoverText));
