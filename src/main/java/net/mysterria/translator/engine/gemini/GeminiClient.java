@@ -41,9 +41,9 @@ public class GeminiClient {
         this.gson = new Gson();
 
 
-        this.model = plugin.getConfig().getString("translation.gemini.model", "gemini-2.0-flash");
-        this.connectTimeout = plugin.getConfig().getInt("translation.gemini.connectTimeout", 10);
-        this.readTimeout = plugin.getConfig().getInt("translation.gemini.readTimeout", 15);
+        this.model = plugin.getConfig().getString("engines.gemini.model", "gemini-2.0-flash");
+        this.connectTimeout = plugin.getConfig().getInt("engines.gemini.connectTimeout", 10);
+        this.readTimeout = plugin.getConfig().getInt("engines.gemini.readTimeout", 15);
 
         plugin.debug("Gemini client initialized with model=" + model +
                      ", connectTimeout=" + connectTimeout + "s, readTimeout=" + readTimeout + "s");

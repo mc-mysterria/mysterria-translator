@@ -32,8 +32,8 @@ public class GoogleClient {
         this.plugin = plugin;
         this.gson = new Gson();
 
-        this.connectTimeout = plugin.getConfig().getInt("translation.google.connectTimeout", 5);
-        this.readTimeout = plugin.getConfig().getInt("translation.google.readTimeout", 10);
+        this.connectTimeout = plugin.getConfig().getInt("engines.google.connectTimeout", 5);
+        this.readTimeout = plugin.getConfig().getInt("engines.google.readTimeout", 10);
 
         plugin.debug("Google Translate client initialized with connectTimeout=" + connectTimeout + "s, readTimeout=" + readTimeout + "s");
     }

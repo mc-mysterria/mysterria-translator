@@ -34,8 +34,8 @@ public class LibreTranslateClient {
         this.gson = new Gson();
 
 
-        int connectTimeout = plugin.getConfig().getInt("translation.libretranslate.connectTimeout", 5);
-        this.readTimeout = plugin.getConfig().getInt("translation.libretranslate.readTimeout", 10);
+        int connectTimeout = plugin.getConfig().getInt("engines.libretranslate.connectTimeout", 5);
+        this.readTimeout = plugin.getConfig().getInt("engines.libretranslate.readTimeout", 10);
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(connectTimeout))

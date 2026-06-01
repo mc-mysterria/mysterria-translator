@@ -1,23 +1,24 @@
-# PlaceholderAPI placeholders supported:
-#   %lang_(key)%           - Shows the translation for the key in the player's language
-#   %lang_player%          - Shows the player's current language
-#   %lang_player_(nick)%   - Shows the specified player's language
+# ================================================== #
+#              MysterriaTranslator                   #
+#         Multi-language plugin for Minecraft        #
+# ================================================== #
 
-# Enable debug mode for more detailed logs.
+# Enable verbose debug logging.
 debug: true
 
-# Default language for the plugin.
-# If a translation is not found in the player's language, this language will be used as fallback.
+# Default language used when a player's language is not set.
 defaultLang: en_us
 
-# Translation cache size (improves performance, but uses more memory).
+# Number of static translation entries to keep in the LRU cache.
 translationCacheSize: 500
 
-# Storage configuration for player languages:
-# type: yaml, sqlite or mysql
-# Data from yaml it's automatically migrated to sqlite or mysql.
+# -------------------------------------------------- #
+#                     Storage                        #
+# -------------------------------------------------- #
 storage:
-  type: yaml # yaml, sqlite or mysql
+  # type: yaml | sqlite | mysql
+  # YAML data is automatically migrated to sqlite/mysql on first use.
+  type: yaml
   mysql:
     host: localhost
     port: 3306
@@ -30,170 +31,196 @@ storage:
       connectTimeout: 5000
       characterEncoding: utf8
 
-# Dynamic translation settings
+# -------------------------------------------------- #
+#               Translation (core)                   #
+# -------------------------------------------------- #
 translation:
-  # Enable/disable automatic translation
+  # Master switch — disable to stop all real-time chat translation.
   enabled: true
 
-  # Translation provider: "ollama", "libretranslate", "gemini", "google", or "openai"
-  # Supports multiple providers with automatic fallback (comma-separated)
-  # - "ollama": Uses local Ollama instance (AI models)
-  # - "libretranslate": Uses LibreTranslate API service
-  # - "gemini": Uses Google Gemini API (supports automatic language detection)
-  # - "google": Uses free Google Translate API (no API key required, may have rate limits)
-  # - "openai": Uses OpenAI API (GPT models)
-  #
+  # Provider order, comma-separated. Tried left-to-right with automatic fallback.
+  # Supported: ollama, libretranslate, gemini, google, openai
   # Examples:
-  #   provider: "gemini"              - Single provider (no fallback)
-  #   provider: "gemini, google"      - Try Gemini first, fallback to Google Translate if it fails
-  #   provider: "google, ollama"      - Try Google Translate first, fallback to Ollama
+  #   provider: "gemini"           — single provider, no fallback
+  #   provider: "gemini, google"   — Gemini first, Google Translate as fallback
   provider: "ollama"
 
-  # Global chat settings
-  globalChat:
-    # Enable global chat translation mode
-    # When enabled, only messages starting with the prefix will be translated
-    enabled: true
+  # Minimum typed characters before translation is attempted.
+  minMessageLength: 3
+  # Maximum translation attempts per message before giving up.
+  maxRetries: 2
+  # How long (seconds) a translation result is cached.
+  cacheExpirySeconds: 30
+  # Maximum messages per player within the window before rate-limiting.
+  rateLimitMessages: 2
+  rateLimitWindowSeconds: 10
+  # How long (minutes) to suspend an engine after receiving HTTP 429.
+  rateLimitSuspensionMinutes: 20
+  # Extra debug output for translation events.
+  debug: true
 
-    # Prefix that triggers global chat translation
-    # Messages starting with this symbol will be translated and broadcasted globally
-    prefix: "!"
+# -------------------------------------------------- #
+#              Translation Engines                   #
+# -------------------------------------------------- #
+engines:
 
-    # Remove the prefix from the translated message
-    # If true: "!Hello" becomes "Hello" in translation
-    # If false: "!Hello" stays "!Hello" in translation
-    removePrefix: true
-
-    # Global chat format (when using custom display mode)
-    # This overrides the regular customFormat for global chat messages
-    globalFormat: "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
-
-    # Console chat format for global messages (when using custom display mode)
-    # Used for non-player senders like DiscordSRV or the console itself
-    consoleFormat: "&8[&bDiscord&8] &f{player_name}&7 >> &f{translated_message}"
-
-  # Range chat settings (for non-global messages when global chat is enabled)
-  rangeChat:
-    # Enable range-based translation for regular messages
-    # When true, regular messages (without global prefix) will be translated for nearby players
-    enabled: true
-
-    # Range in blocks for translating messages
-    # Players within this distance will receive translated messages
-    range: 100.0
-
-    # Include players in different worlds
-    # If false, only players in the same world will receive translations
-    crossWorld: false
-
-    # Range chat format (when using custom display mode)
-    # This overrides the regular customFormat for range chat messages
-    rangeFormat: "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
-
-  # Ollama configuration
   ollama:
     url: "https://ollama.mysterria.net"
-    model: "gemma2:2b"  # Recommended: qwen2.5:3b or gemma2:2b
-    apiKey: ""  # Optional: Bearer token for authenticated Ollama instances
-    connectTimeout: 10  # Connection timeout in seconds (default: 10)
-    requestTimeout: 90  # Request timeout in seconds - AI inference can be slow (default: 90)
+    model: "gemma2:2b"   # Recommended: qwen2.5:3b or gemma2:2b
+    apiKey: ""            # Optional Bearer token for authenticated instances
+    connectTimeout: 10    # seconds
+    requestTimeout: 90    # seconds — AI inference can be slow
 
-  # LibreTranslate configuration
   libretranslate:
     url: "https://libre.mysterria.net/translate"
     apiKey: "your-api-key-here"
-    alternatives: 3  # Number of alternative translations to request
-    format: "text"   # Format: "text" or "html"
-    connectTimeout: 5  # Connection timeout in seconds (default: 5)
-    readTimeout: 10    # Read timeout in seconds (default: 10)
+    alternatives: 3
+    format: "text"        # "text" or "html"
+    connectTimeout: 5
+    readTimeout: 10
 
-  # Gemini configuration
   gemini:
-    # List of API keys (for rate limit handling)
-    # Add multiple keys separated by commas for better reliability
+    # Add multiple API keys for better rate-limit resilience.
     apiKeys:
       - "your-gemini-api-key-1"
       - "your-gemini-api-key-2"
-    # Model to use (default: gemini-1.5-flash)
     model: "gemini-1.5-flash"
-    # Enable contextual translation (includes online player names)
+    # Pass online player names as context so the model avoids translating them.
     includeContext: true
-    connectTimeout: 10  # Connection timeout in seconds (default: 10)
-    readTimeout: 15     # Read timeout in seconds (default: 15)
+    connectTimeout: 10
+    readTimeout: 15
 
-  # Google Translate configuration (free, no API key required)
   google:
-    # Note: This uses the unofficial free Google Translate API
-    # No API key is required, but it may have rate limits
-    # If you hit rate limits, consider using Gemini with API keys or another provider
-    connectTimeout: 5  # Connection timeout in seconds (default: 5)
-    readTimeout: 10    # Read timeout in seconds (default: 10)
+    # Unofficial free Google Translate endpoint — no API key required.
+    # May be rate-limited under heavy load; use Gemini as primary if possible.
+    connectTimeout: 5
+    readTimeout: 10
 
-  # OpenAI configuration
   openai:
-    apiKey: "sk-..."  # Your OpenAI API key
-    # Model to use (default: gpt-4o-mini)
-    # Options: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo, o1, o3, or custom models
-    model: "gpt-4o-mini"
-    # Base URL for OpenAI API (default: https://api.openai.com/v1)
-    # Can be changed for custom endpoints or proxies
+    apiKey: "sk-..."
+    model: "gpt-4o-mini"   # gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo, o1, o3
     baseUrl: "https://api.openai.com/v1"
-    connectTimeout: 10  # Connection timeout in seconds (default: 10)
-    readTimeout: 30     # Read timeout in seconds (default: 30)
+    connectTimeout: 10
+    readTimeout: 30
+    maxTokens: 1000
+    # Set true to use legacy 'max_tokens' instead of 'max_completion_tokens' (for older models).
+    useLegacyMaxTokens: false
+    # Disable temperature / top_p for models that do not support them (o1, o3, etc.).
+    useTemperature: true
+    temperature: 0.3
+    useTopP: true
+    topP: 0.9
 
-    # Token limit configuration
-    maxTokens: 1000     # Maximum tokens in response (default: 1000)
-    useLegacyMaxTokens: false  # Use 'max_tokens' instead of 'max_completion_tokens' (default: false)
+# -------------------------------------------------- #
+#           Chat Routing  (shared by all             #
+#          integrations: ZelChat, ChatControl,       #
+#          and the Bukkit fallback)                  #
+# -------------------------------------------------- #
+chat:
+  globalChat:
+    # When true, only messages that start with `prefix` are treated as global chat.
+    # Messages without the prefix are routed to range chat (if enabled below).
+    enabled: true
+    # The symbol that marks a global-chat message (e.g. player types "!Hello").
+    prefix: "!"
+    # Strip the prefix before the message is displayed / translated.
+    removePrefix: true
 
-    # Sampling parameters - disable these for models that don't support them (o1, o3, etc.)
-    useTemperature: true  # Enable temperature parameter (default: true)
-    temperature: 0.3      # Creativity (0.0-2.0, default: 0.3) - lower is more focused
-    useTopP: true         # Enable top_p parameter (default: true)
-    topP: 0.9             # Nucleus sampling (0.0-1.0, default: 0.9)
+  rangeChat:
+    # When true, messages without the global prefix are delivered only to players
+    # within `range` blocks of the sender.
+    enabled: true
+    # Delivery radius in blocks.
+    range: 100.0
+    # If false, only players in the same world receive range messages.
+    crossWorld: false
 
-  # Cache settings
-  cacheExpirySeconds: 30
-
-  # Rate limiting (messages per time window per player)
-  rateLimitMessages: 2
-  rateLimitWindowSeconds: 10
-
-  # Translation thresholds
-  minMessageLength: 3
-  maxRetries: 2
-
-  # Rate limit suspension settings
-  # When an API returns 429 (Too Many Requests), suspend that engine/key for this duration
-  # This prevents hammering the API and allows rate limits to reset
-  rateLimitSuspensionMinutes: 20
-
-  # Translation display configuration
+# -------------------------------------------------- #
+#          ZelChat Integration Settings              #
+# -------------------------------------------------- #
+zelchat:
   display:
-    # Display mode: "separate", "replace", "compact", "custom"
-    # - "separate": Show original message first, then translated message (current behavior)
-    # - "replace": Replace original message with translated version for recipients
-    # - "compact": Show translation inline with hover for original
-    # - "custom": Use custom format with PlaceholderAPI support
-    mode: "custom"
-
-    # Translation prefix for separate/compact modes
-    prefix: "[T]"
-
-    # Show translation indicator in hover tooltip
+    # Show a hover tooltip on translated messages with the original text.
     showHover: true
 
-    # Color for translation indicator (minecraft color codes or hex)
+  # Prefixes that route to a ZelChat named channel (staff chat, admin chat, etc.).
+  # Messages starting with any of these are passed through to ZelChat unchanged.
+  # Only needed if the ChannelType.CUSTOM check doesn't catch them automatically.
+  channelPrefixes:
+    - "#"
+
+  rangeChat:
+    format:
+      # Main message template.
+      # Use {message} where the chat content should appear.
+      # Supports legacy codes (&c, &l, &r…), hex colors (&#RRGGBB), and %papi% placeholders.
+      # Leave as "" to use ZelChat's own format for the sender unchanged.
+      #
+      # Example:
+      #   message: '&c&l[R] &f%player_name% &8➠ &f{message}'
+      message: "&c&l[R] &f%player_name% &8➠ &f{message}"
+
+      # Hover tooltip shown when hovering over the message.
+      # Multi-line: use a YAML block scalar (|) and indent each line.
+      # Supports legacy codes, hex colors, and %papi% placeholders.
+      # Leave as "" for no hover.
+      #
+      # Example:
+      #   hover: |
+      #     &#25c8fa&lINFO
+      #     &#25c8fa&l▮&r &7ᴘɪɴɢ &f%player_ping%ms
+      #     &#25c8fa&l→ &rᴄʟɪᴄᴋ ᴛᴏ sᴇɴᴅ ᴀ ᴘʀɪᴠᴀᴛᴇ ᴍᴇssᴀɢᴇ
+      hover: |
+        &#25c8fa&lINFO
+        &#25c8fa&l▮&r &7ᴘɪɴɢ &f%player_ping%ms
+        &#25c8fa&l→ &rᴄʟɪᴄᴋ ᴛᴏ sᴇɴᴅ ᴀ ᴘʀɪᴠᴀᴛᴇ ᴍᴇssᴀɢᴇ
+
+      # Click action performed when the message is clicked.
+      # Format:  SUGGEST_COMMAND:/cmd   RUN_COMMAND:/cmd   OPEN_URL:https://...
+      # %papi% placeholders are resolved for the sender.
+      # Leave as "" for no click action.
+      #
+      # Example:
+      #   action: "SUGGEST_COMMAND:/msg %player_name%"
+      action: "SUGGEST_COMMAND:/msg %player_name%"
+
+# -------------------------------------------------- #
+#       ChatControl / Bukkit Fallback Settings       #
+# -------------------------------------------------- #
+chatcontrol:
+  display:
+    # How translations are shown to recipients.
+    # Modes: separate | replace | compact | custom
+    #   separate — original first, then translated
+    #   replace  — translated replaces the original for that player
+    #   compact  — translated inline with a hover for the original
+    #   custom   — use the format strings defined below
+    mode: "custom"
+
+    # Prefix shown in separate/compact modes.
+    prefix: "[T]"
+    # Show original + language info in a hover tooltip.
+    showHover: true
+    # Color of the translation indicator in separate/compact modes.
+    # Any named color: black, dark_blue, dark_green, dark_aqua, dark_red,
+    #                  dark_purple, gold, gray, dark_gray, blue, green, aqua,
+    #                  red, light_purple, yellow, white
     indicatorColor: "aqua"
 
-    # Custom format for translated messages (when mode is "custom")
-    # Available placeholders:
-    # - {player_name}: Player's name
-    # - {translated_message}: The translated message
-    # - {original_message}: The original message
-    # - {source_language}: Source language (e.g., "Ukrainian")
-    # - {target_language}: Target language (e.g., "English")
-    # - Any PlaceholderAPI placeholder (e.g., {luckperms_prefix}, {player_chat_color})
-    customFormat: "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
+  globalChat:
+    # Format used for global-chat messages from a player.
+    format: "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
+    # Format used for global-chat messages from the console / Discord bridge.
+    consoleFormat: "&8[&bDiscord&8] &f{player_name}&7 >> &f{translated_message}"
 
-  # Debug translation events
-  debug: true
+  rangeChat:
+    # Format used for range-chat messages from a player.
+    format: "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"
+    # Format used for range-chat messages from the console.
+    consoleFormat: "&8[&eР&8] &f{player_name}&7 >> &f{translated_message}"
+
+  privateMessage:
+    # Format used when a private message is translated for the recipient.
+    # Available: {player_name}, {translated_message}, {original_message},
+    #            {source_language}, {target_language}, any PAPI placeholder
+    format: "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}"

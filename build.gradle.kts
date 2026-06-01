@@ -17,6 +17,11 @@ repositories {
     }
 
     maven {
+        name = "pinodevRepo"
+        url = uri("https://repo.pinodev.it/releases")
+    }
+
+    maven {
         url = uri("https://repo.papermc.io/repository/maven-public/")
     }
     maven {
@@ -31,13 +36,14 @@ repositories {
 }
 
 dependencies {
+    compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-26")
     compileOnly(files("libs/ChatControl-11.5.3.jar"))
     compileOnly("me.clip:placeholderapi:2.11.6")
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     implementation("com.google.genai:google-genai:1.26.0")
     implementation("com.google.code.gson:gson:2.10.1")
     compileOnlyApi("me.libraryaddict.disguises:libsdisguises:11.0.16")
-    compileOnly("com.github.retrooper:packetevents-spigot:2.12.0")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.12.1")
 }
 
 tasks.named("build") {
@@ -51,7 +57,7 @@ java.sourceCompatibility = JavaVersion.VERSION_25
 
 tasks {
     runServer {
-        minecraftVersion("1.21.11")
+        minecraftVersion("26.1.2")
     }
 }
 

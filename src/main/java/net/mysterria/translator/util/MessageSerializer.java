@@ -10,22 +10,55 @@ public class MessageSerializer {
 
     private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacyAmpersand();
     private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
-    
+
     public static Component getMessage(FileConfiguration messageConfig, String path, String... placeholders) {
         String messageString = getMessageString(messageConfig, path, placeholders);
         return parseMessage(messageString);
     }
-    
+
+    /**
+     * Parses a format string that may contain any mix of:
+     *  - Legacy & codes (&c, &l, &r…)
+     *  - § (section-sign) codes returned by some PAPI placeholders
+     *  - Bukkit 6-byte legacy hex §x§R§R§G§G§B§B (→ after § normalisation: &x&R&R&G&G&B&B)
+     *  - Shorthand hex &#RRGGBB
+     *  - Full MiniMessage tags (<gradient:…>, <rainbow>, <#RRGGBB>, <hover:…>, etc.)
+     */
     public static Component parseMessage(String message) {
-        if (containsMiniMessageTags(message)) {
-            try {
-                return MINI_MESSAGE.deserialize(convertLegacyToMiniMessage(message));
-            } catch (Exception e) {
-                return LEGACY_SERIALIZER.deserialize(message);
-            }
-        } else {
+        try {
+            return MINI_MESSAGE.deserialize(prepareForMiniMessage(message));
+        } catch (Exception e) {
             return LEGACY_SERIALIZER.deserialize(message);
         }
+    }
+
+    /**
+     * Normalises all color-code formats to MiniMessage syntax without deserializing.
+     * Use this when embedding the result in a larger MiniMessage expression (e.g. with
+     * custom TagResolvers), so that §c, &#RRGGBB, &x&..., &c etc. all become proper tags.
+     */
+    public static String prepareForMiniMessage(String message) {
+        String s = message.replace('§', '&');
+        s = convertLegacyHexCodes(s);
+        s = convertHexColors(s);
+        s = convertLegacyToMiniMessage(s);
+        return s;
+    }
+
+    public static MiniMessage getMiniMessage() {
+        return MINI_MESSAGE;
+    }
+
+    /** &x&R&R&G&G&B&B (Bukkit/BungeeCord legacy hex, after § → & normalisation) → <#RRGGBB>. */
+    private static String convertLegacyHexCodes(String message) {
+        return message.replaceAll(
+                "&x&([0-9A-Fa-f])&([0-9A-Fa-f])&([0-9A-Fa-f])&([0-9A-Fa-f])&([0-9A-Fa-f])&([0-9A-Fa-f])",
+                "<#$1$2$3$4$5$6>");
+    }
+
+    /** &#RRGGBB (common shorthand) → <#RRGGBB>. */
+    private static String convertHexColors(String message) {
+        return message.replaceAll("&#([0-9A-Fa-f]{6})", "<#$1>");
     }
 
     private static String convertLegacyToMiniMessage(String message) {
@@ -53,16 +86,7 @@ public class MessageSerializer {
                 .replace("&o", "<italic>").replace("&O", "<italic>")
                 .replace("&r", "<reset>").replace("&R", "<reset>");
     }
-    
-    private static boolean containsMiniMessageTags(String message) {
-        return message.contains("<") && message.contains(">") && 
-               (message.contains("<gradient:") || message.contains("<rainbow") || 
-                message.contains("<color:") || message.contains("<#") ||
-                message.contains("<bold>") || message.contains("<italic>") ||
-                message.contains("<underlined>") || message.contains("<strikethrough>") ||
-                message.contains("<obfuscated>") || message.contains("<reset>"));
-    }
-    
+
     public static String getMessageString(FileConfiguration messageConfig, String path, String... placeholders) {
         Object messageObj = messageConfig.get(path);
         String message;

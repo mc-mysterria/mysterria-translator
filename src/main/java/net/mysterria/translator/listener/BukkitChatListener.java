@@ -319,10 +319,10 @@ public class BukkitChatListener implements Listener {
             return null;
         }
 
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
-        String prefix = plugin.getConfig().getString("translation.display.prefix", "[T]");
-        boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
-        String indicatorColor = plugin.getConfig().getString("translation.display.indicatorColor", "aqua");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
+        String prefix = plugin.getConfig().getString("chatcontrol.display.prefix", "[T]");
+        boolean showHover = plugin.getConfig().getBoolean("chatcontrol.display.showHover", true);
+        String indicatorColor = plugin.getConfig().getString("chatcontrol.display.indicatorColor", "aqua");
 
         NamedTextColor color = parseColor(indicatorColor);
 
@@ -367,7 +367,7 @@ public class BukkitChatListener implements Listener {
 
             case "custom":
                 
-                String customFormat = plugin.getConfig().getString("translation.display.customFormat",
+                String customFormat = plugin.getConfig().getString("chatcontrol.privateMessage.format",
                         "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
                 return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
 
@@ -392,10 +392,10 @@ public class BukkitChatListener implements Listener {
             return null;
         }
 
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
-        String prefix = plugin.getConfig().getString("translation.display.prefix", "[T]");
-        boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
-        String indicatorColor = plugin.getConfig().getString("translation.display.indicatorColor", "aqua");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
+        String prefix = plugin.getConfig().getString("chatcontrol.display.prefix", "[T]");
+        boolean showHover = plugin.getConfig().getBoolean("chatcontrol.display.showHover", true);
+        String indicatorColor = plugin.getConfig().getString("chatcontrol.display.indicatorColor", "aqua");
 
         NamedTextColor color = parseColor(indicatorColor);
 
@@ -437,7 +437,7 @@ public class BukkitChatListener implements Listener {
 
             case "custom":
                 
-                String customFormat = plugin.getConfig().getString("translation.display.customFormat",
+                String customFormat = plugin.getConfig().getString("chatcontrol.privateMessage.format",
                         "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
                 return createCustomFormattedMessage(result, sender, customFormat, showHover ? hoverText : null);
 
@@ -497,21 +497,21 @@ public class BukkitChatListener implements Listener {
     }
 
     private boolean isGlobalChatEnabled() {
-        return plugin.getConfig().getBoolean("translation.globalChat.enabled", false);
+        return plugin.getConfig().getBoolean("chat.globalChat.enabled", false);
     }
 
     private boolean isRangeChatEnabled() {
-        return plugin.getConfig().getBoolean("translation.rangeChat.enabled", true);
+        return plugin.getConfig().getBoolean("chat.rangeChat.enabled", true);
     }
 
     private boolean isGlobalChatMessage(String message) {
-        String prefix = plugin.getConfig().getString("translation.globalChat.prefix", "!");
+        String prefix = plugin.getConfig().getString("chat.globalChat.prefix", "!");
         return message.startsWith(prefix);
     }
 
     private String processGlobalChatPrefix(String message) {
-        String prefix = plugin.getConfig().getString("translation.globalChat.prefix", "!");
-        boolean removePrefix = plugin.getConfig().getBoolean("translation.globalChat.removePrefix", true);
+        String prefix = plugin.getConfig().getString("chat.globalChat.prefix", "!");
+        boolean removePrefix = plugin.getConfig().getBoolean("chat.globalChat.removePrefix", true);
 
         if (removePrefix && message.startsWith(prefix)) {
             return message.substring(prefix.length()).trim();
@@ -643,14 +643,14 @@ public class BukkitChatListener implements Listener {
     }
 
     private Component createGlobalChatMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
-            String format = plugin.getConfig().getString("translation.globalChat.globalFormat",
+            String format = plugin.getConfig().getString("chatcontrol.globalChat.format",
                     "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
 
             if (isTranslated && result != null) {
-                boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+                boolean showHover = plugin.getConfig().getBoolean("chatcontrol.display.showHover", true);
                 Component hoverText = null;
                 if (showHover) {
                     hoverText = Component.text("Original: " + result.getOriginalText())
@@ -695,8 +695,8 @@ public class BukkitChatListener implements Listener {
     }
 
     private java.util.Set<Player> getPlayersInRange(Player sender) {
-        double range = plugin.getConfig().getDouble("translation.rangeChat.range", 100.0);
-        boolean crossWorld = plugin.getConfig().getBoolean("translation.rangeChat.crossWorld", false);
+        double range = plugin.getConfig().getDouble("chat.rangeChat.range", 100.0);
+        boolean crossWorld = plugin.getConfig().getBoolean("chat.rangeChat.crossWorld", false);
         java.util.Set<Player> playersInRange = new java.util.HashSet<>();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -799,15 +799,15 @@ public class BukkitChatListener implements Listener {
     }
 
     private Component createRangeChatMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
             
-            String format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
+            String format = plugin.getConfig().getString("chatcontrol.rangeChat.format",
                     "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{player_chat_color}{player_chat_decoration}{translated_message}");
 
             if (isTranslated && result != null) {
-                boolean showHover = plugin.getConfig().getBoolean("translation.display.showHover", true);
+                boolean showHover = plugin.getConfig().getBoolean("chatcontrol.display.showHover", true);
                 Component hoverText = null;
                 if (showHover) {
                     hoverText = Component.text("Original: " + result.getOriginalText())

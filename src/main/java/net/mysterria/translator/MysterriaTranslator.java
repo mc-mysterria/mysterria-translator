@@ -11,6 +11,7 @@ import net.mysterria.translator.engine.openai.OpenAIClient;
 import net.mysterria.translator.listener.BukkitChatListener;
 import net.mysterria.translator.listener.ChatControlListener;
 import net.mysterria.translator.listener.PlayerJoinListener;
+import net.mysterria.translator.listener.ZelChatListener;
 import net.mysterria.translator.manager.LangManager;
 import net.mysterria.translator.manager.PromptManager;
 import net.mysterria.translator.placeholder.LangExpansion;
@@ -40,6 +41,8 @@ public class MysterriaTranslator extends JavaPlugin {
 
     private FileConfiguration messagesConfig;
     private PlayerLangStorage storage;
+
+    private ZelChatListener zelChatListener;
 
     private OllamaClient ollamaClient;
     private LibreTranslateClient libreTranslateClient;
@@ -71,19 +74,19 @@ public class MysterriaTranslator extends JavaPlugin {
         this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
         this.promptManager = new PromptManager(this);
 
-        this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+        this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("engines.ollama.url"), getConfig().getString("engines.ollama.model"), getConfig().getString("engines.ollama.apiKey"));
 
         this.libreTranslateClient = new LibreTranslateClient(this,
-                getConfig().getString("translation.libretranslate.url"),
-                getConfig().getString("translation.libretranslate.apiKey"),
-                getConfig().getInt("translation.libretranslate.alternatives", 3),
-                getConfig().getString("translation.libretranslate.format", "text"));
-        this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
+                getConfig().getString("engines.libretranslate.url"),
+                getConfig().getString("engines.libretranslate.apiKey"),
+                getConfig().getInt("engines.libretranslate.alternatives", 3),
+                getConfig().getString("engines.libretranslate.format", "text"));
+        this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("engines.gemini.apiKeys"));
 
         this.openAIClient = new OpenAIClient(this, promptManager,
-                getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
-                getConfig().getString("translation.openai.model", "gpt-4o-mini"),
-                getConfig().getString("translation.openai.apiKey", ""));
+                getConfig().getString("engines.openai.baseUrl", "https://api.openai.com/v1"),
+                getConfig().getString("engines.openai.model", "gpt-4o-mini"),
+                getConfig().getString("engines.openai.apiKey", ""));
 
         this.googleClient = new GoogleClient(this);
 
@@ -110,17 +113,27 @@ public class MysterriaTranslator extends JavaPlugin {
         Objects.requireNonNull(getCommand("lang")).setExecutor(new LangCommand(langManager, this));
         getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
 
-        if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
+        if (Bukkit.getPluginManager().getPlugin("ZelChat") != null) {
+            zelChatListener = new ZelChatListener(this, translationManager);
+            zelChatListener.register();
+            log("Registered ZelChat integration module.");
+        } else if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
             getServer().getPluginManager().registerEvents(new ChatControlListener(this, translationManager), this);
             log("Registered ChatControl integration listener.");
         } else {
-
             getServer().getPluginManager().registerEvents(new BukkitChatListener(this, translationManager), this);
             log("ChatControl not found, using Bukkit events fallback.");
         }
 
         long endTime = System.currentTimeMillis();
         log("\u001B[1;32mPlugin loaded successfully in " + (endTime - startTime) + "ms\u001B[0m");
+    }
+
+    @Override
+    public void onDisable() {
+        if (zelChatListener != null) {
+            zelChatListener.unregister();
+        }
     }
 
     private void initDatabase() {
@@ -275,17 +288,17 @@ public class MysterriaTranslator extends JavaPlugin {
         log("Reloading with providers: " + String.join(", ", enabledProviders));
 
         try {
-            this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("translation.gemini.apiKeys"));
-            this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("translation.ollama.url"), getConfig().getString("translation.ollama.model"), getConfig().getString("translation.ollama.apiKey"));
+            this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("engines.gemini.apiKeys"));
+            this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("engines.ollama.url"), getConfig().getString("engines.ollama.model"), getConfig().getString("engines.ollama.apiKey"));
             this.libreTranslateClient = new LibreTranslateClient(this,
-                    getConfig().getString("translation.libretranslate.url"),
-                    getConfig().getString("translation.libretranslate.apiKey"),
-                    getConfig().getInt("translation.libretranslate.alternatives", 3),
-                    getConfig().getString("translation.libretranslate.format", "text"));
+                    getConfig().getString("engines.libretranslate.url"),
+                    getConfig().getString("engines.libretranslate.apiKey"),
+                    getConfig().getInt("engines.libretranslate.alternatives", 3),
+                    getConfig().getString("engines.libretranslate.format", "text"));
             this.openAIClient = new OpenAIClient(this, promptManager,
-                    getConfig().getString("translation.openai.baseUrl", "https://api.openai.com/v1"),
-                    getConfig().getString("translation.openai.model", "gpt-4o-mini"),
-                    getConfig().getString("translation.openai.apiKey", ""));
+                    getConfig().getString("engines.openai.baseUrl", "https://api.openai.com/v1"),
+                    getConfig().getString("engines.openai.model", "gpt-4o-mini"),
+                    getConfig().getString("engines.openai.apiKey", ""));
 
             this.googleClient = new GoogleClient(this);
 

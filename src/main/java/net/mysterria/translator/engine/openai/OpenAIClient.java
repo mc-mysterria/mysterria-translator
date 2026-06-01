@@ -37,8 +37,8 @@ public class OpenAIClient {
         this.gson = new Gson();
 
 
-        int connectTimeout = plugin.getConfig().getInt("translation.openai.connectTimeout", 10);
-        this.readTimeout = plugin.getConfig().getInt("translation.openai.readTimeout", 30);
+        int connectTimeout = plugin.getConfig().getInt("engines.openai.connectTimeout", 10);
+        this.readTimeout = plugin.getConfig().getInt("engines.openai.readTimeout", 30);
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(connectTimeout))
@@ -83,19 +83,19 @@ public class OpenAIClient {
         request.add("messages", messages);
 
 
-        if (plugin.getConfig().getBoolean("translation.openai.useTemperature", true)) {
-            double temperature = plugin.getConfig().getDouble("translation.openai.temperature", 0.3);
+        if (plugin.getConfig().getBoolean("engines.openai.useTemperature", true)) {
+            double temperature = plugin.getConfig().getDouble("engines.openai.temperature", 0.3);
             request.addProperty("temperature", temperature);
         }
 
-        if (plugin.getConfig().getBoolean("translation.openai.useTopP", true)) {
-            double topP = plugin.getConfig().getDouble("translation.openai.topP", 0.9);
+        if (plugin.getConfig().getBoolean("engines.openai.useTopP", true)) {
+            double topP = plugin.getConfig().getDouble("engines.openai.topP", 0.9);
             request.addProperty("top_p", topP);
         }
 
 
-        boolean useLegacyMaxTokens = plugin.getConfig().getBoolean("translation.openai.useLegacyMaxTokens", false);
-        int maxTokens = plugin.getConfig().getInt("translation.openai.maxTokens", 1000);
+        boolean useLegacyMaxTokens = plugin.getConfig().getBoolean("engines.openai.useLegacyMaxTokens", false);
+        int maxTokens = plugin.getConfig().getInt("engines.openai.maxTokens", 1000);
         if (useLegacyMaxTokens) {
             request.addProperty("max_tokens", maxTokens);
         } else {

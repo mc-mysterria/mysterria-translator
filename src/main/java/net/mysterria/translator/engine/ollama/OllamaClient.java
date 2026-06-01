@@ -36,8 +36,8 @@ public class OllamaClient {
         this.gson = new Gson();
 
         
-        int connectTimeout = plugin.getConfig().getInt("translation.ollama.connectTimeout", 10);
-        this.requestTimeout = plugin.getConfig().getInt("translation.ollama.requestTimeout", 90);
+        int connectTimeout = plugin.getConfig().getInt("engines.ollama.connectTimeout", 10);
+        this.requestTimeout = plugin.getConfig().getInt("engines.ollama.requestTimeout", 90);
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(connectTimeout))

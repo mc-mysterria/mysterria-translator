@@ -312,20 +312,20 @@ public class ChatControlListener implements Listener {
     }
 
     private Component createFormattedMessage(Player sender, String message, boolean isTranslated, TranslationResult result, boolean isGlobalChannel) {
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
             String format;
             if (isGlobalChannel) {
-                format = plugin.getConfig().getString("translation.globalChat.globalFormat",
+                format = plugin.getConfig().getString("chatcontrol.globalChat.format",
                         "&8[&bГ&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
             } else {
-                format = plugin.getConfig().getString("translation.rangeChat.rangeFormat",
+                format = plugin.getConfig().getString("chatcontrol.rangeChat.format",
                         "&8[&eР&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
             }
 
             Component hoverText = null;
-            if (isTranslated && result != null && plugin.getConfig().getBoolean("translation.display.showHover", true)) {
+            if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
                 hoverText = Component.text("Original: " + result.getOriginalText())
                         .color(NamedTextColor.GRAY)
                         .append(Component.newline())
@@ -343,20 +343,20 @@ public class ChatControlListener implements Listener {
     }
 
     private Component createFormattedMessage(CommandSender sender, String message, boolean isTranslated, TranslationResult result, boolean isGlobalChannel) {
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
             String format;
             if (isGlobalChannel) {
-                format = plugin.getConfig().getString("translation.globalChat.consoleFormat",
+                format = plugin.getConfig().getString("chatcontrol.globalChat.consoleFormat",
                         "&8[&bГ&8] &f{player_name}&7 >> &f{translated_message}");
             } else {
-                format = plugin.getConfig().getString("translation.rangeChat.consoleFormat",
+                format = plugin.getConfig().getString("chatcontrol.rangeChat.consoleFormat",
                         "&8[&eР&8] &f{player_name}&7 >> &f{translated_message}");
             }
 
             Component hoverText = null;
-            if (isTranslated && result != null && plugin.getConfig().getBoolean("translation.display.showHover", true)) {
+            if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
                 hoverText = Component.text("Original: " + result.getOriginalText())
                         .color(NamedTextColor.GRAY)
                         .append(Component.newline())
@@ -374,14 +374,14 @@ public class ChatControlListener implements Listener {
     }
 
     private Component createPrivateMessage(Player sender, String message, boolean isTranslated, TranslationResult result) {
-        String displayMode = plugin.getConfig().getString("translation.display.mode", "compact");
+        String displayMode = plugin.getConfig().getString("chatcontrol.display.mode", "compact");
 
         if (displayMode.equals("custom")) {
-            String format = plugin.getConfig().getString("translation.display.customFormat",
+            String format = plugin.getConfig().getString("chatcontrol.privateMessage.format",
                     "&8[&eТ&8] {luckperms_prefix}&f{player_name}&7 >> &f{translated_message}");
 
             Component hoverText = null;
-            if (isTranslated && result != null && plugin.getConfig().getBoolean("translation.display.showHover", true)) {
+            if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
                 hoverText = Component.text("Original: " + result.getOriginalText())
                         .color(NamedTextColor.GRAY)
                         .append(Component.newline())

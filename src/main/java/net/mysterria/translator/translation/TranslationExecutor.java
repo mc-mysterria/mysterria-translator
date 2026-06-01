@@ -60,7 +60,7 @@ public class TranslationExecutor {
                     plugin.debug("Gemini client not initialized");
                     return CompletableFuture.completedFuture(null);
                 }
-                boolean includeContext = plugin.getConfig().getBoolean("translation.gemini.includeContext", true);
+                boolean includeContext = plugin.getConfig().getBoolean("engines.gemini.includeContext", true);
                 if (includeContext) {
                     return geminiClient.translateAsyncWithContext(message, fromLang, toLang);
                 } else {

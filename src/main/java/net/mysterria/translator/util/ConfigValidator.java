@@ -102,42 +102,42 @@ public class ConfigValidator {
     }
 
     private void validateOllama() {
-        String url = plugin.getConfig().getString("translation.ollama.url");
+        String url = plugin.getConfig().getString("engines.ollama.url");
         if (url == null || url.isEmpty()) {
             errors.add("Ollama: URL is not configured");
         } else if (!isValidUrl(url)) {
             errors.add("Ollama: Invalid URL format: " + url);
         }
 
-        String model = plugin.getConfig().getString("translation.ollama.model");
+        String model = plugin.getConfig().getString("engines.ollama.model");
         if (model == null || model.isEmpty()) {
             errors.add("Ollama: Model is not configured");
         }
 
-        validateNumericSetting("translation.ollama.connectTimeout", 1, 300);
-        validateNumericSetting("translation.ollama.requestTimeout", 1, 600);
+        validateNumericSetting("engines.ollama.connectTimeout", 1, 300);
+        validateNumericSetting("engines.ollama.requestTimeout", 1, 600);
     }
 
     private void validateLibreTranslate() {
-        String url = plugin.getConfig().getString("translation.libretranslate.url");
+        String url = plugin.getConfig().getString("engines.libretranslate.url");
         if (url == null || url.isEmpty()) {
             errors.add("LibreTranslate: URL is not configured");
         } else if (!isValidUrl(url)) {
             errors.add("LibreTranslate: Invalid URL format: " + url);
         }
 
-        String apiKey = plugin.getConfig().getString("translation.libretranslate.apiKey", "");
+        String apiKey = plugin.getConfig().getString("engines.libretranslate.apiKey", "");
         if (apiKey.isEmpty()) {
             warnings.add("LibreTranslate: No API key configured (may be required by some instances)");
         }
 
-        validateNumericSetting("translation.libretranslate.alternatives", 1, 10);
-        validateNumericSetting("translation.libretranslate.connectTimeout", 1, 300);
-        validateNumericSetting("translation.libretranslate.readTimeout", 1, 600);
+        validateNumericSetting("engines.libretranslate.alternatives", 1, 10);
+        validateNumericSetting("engines.libretranslate.connectTimeout", 1, 300);
+        validateNumericSetting("engines.libretranslate.readTimeout", 1, 600);
     }
 
     private void validateGemini() {
-        ConfigurationSection geminiSection = plugin.getConfig().getConfigurationSection("translation.gemini");
+        ConfigurationSection geminiSection = plugin.getConfig().getConfigurationSection("engines.gemini");
         if (geminiSection == null) {
             errors.add("Gemini: Configuration section not found");
             return;
@@ -155,35 +155,35 @@ public class ConfigValidator {
             }
         }
 
-        String model = plugin.getConfig().getString("translation.gemini.model");
+        String model = plugin.getConfig().getString("engines.gemini.model");
         if (model == null || model.isEmpty()) {
             warnings.add("Gemini: No model specified, will use default (gemini-2.0-flash)");
         }
 
-        validateNumericSetting("translation.gemini.connectTimeout", 1, 300);
-        validateNumericSetting("translation.gemini.readTimeout", 1, 600);
+        validateNumericSetting("engines.gemini.connectTimeout", 1, 300);
+        validateNumericSetting("engines.gemini.readTimeout", 1, 600);
     }
 
     private void validateOpenAI() {
-        String apiKey = plugin.getConfig().getString("translation.openai.apiKey", "");
+        String apiKey = plugin.getConfig().getString("engines.openai.apiKey", "");
         if (apiKey.isEmpty() || apiKey.contains("sk-...") || apiKey.contains("your-api-key")) {
             errors.add("OpenAI: API key is not configured or contains placeholder text");
         }
 
-        String model = plugin.getConfig().getString("translation.openai.model");
+        String model = plugin.getConfig().getString("engines.openai.model");
         if (model == null || model.isEmpty()) {
             warnings.add("OpenAI: No model specified, will use default (gpt-4o-mini)");
         }
 
-        String baseUrl = plugin.getConfig().getString("translation.openai.baseUrl");
+        String baseUrl = plugin.getConfig().getString("engines.openai.baseUrl");
         if (baseUrl == null || baseUrl.isEmpty()) {
             warnings.add("OpenAI: No base URL specified, will use default (https://api.openai.com/v1)");
         } else if (!isValidUrl(baseUrl)) {
             errors.add("OpenAI: Invalid base URL format: " + baseUrl);
         }
 
-        validateNumericSetting("translation.openai.connectTimeout", 1, 300);
-        validateNumericSetting("translation.openai.readTimeout", 1, 600);
+        validateNumericSetting("engines.openai.connectTimeout", 1, 300);
+        validateNumericSetting("engines.openai.readTimeout", 1, 600);
     }
 
     /**
