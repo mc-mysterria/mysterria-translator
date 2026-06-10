@@ -22,6 +22,7 @@ import net.mysterria.translator.util.LanguageDetector;
 import net.mysterria.translator.util.MessageSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -75,7 +76,7 @@ public class ZelChatListener {
             }
 
             ChannelType initialType = chatMessage.getChannel().getType();
-            if (initialType == ChannelType.PRIVATE || initialType == ChannelType.CUSTOM) {
+            if (initialType == ChannelType.PRIVATE || initialType == ChannelType.STAFF || initialType == ChannelType.CUSTOM) {
                 // PRIVATE = DM; CUSTOM = ZelChat already routed this to a named channel (staff, etc.)
                 return;
             }
@@ -115,7 +116,11 @@ public class ZelChatListener {
             if (isGlobal && plugin.getConfig().getBoolean("chat.globalChat.removePrefix", true)) {
                 String stripped = rawMessage.substring(globalPrefix.length()).trim();
                 if (stripped.isEmpty()) return;
-                chatMessage.setMessage(Component.text(stripped));
+                // Strip only the prefix text from the already-processed Component so that
+                // rich content expanded by ZelChat's modules (e.g. [item] hover/click) is preserved.
+                Component strippedComponent = chatMessage.getMessage()
+                        .replaceText(b -> b.matchLiteral(globalPrefix).once().replacement(Component.empty()));
+                chatMessage.setMessage(strippedComponent);
                 messageText = stripped;
             } else {
                 messageText = rawMessage;
