@@ -38,7 +38,7 @@ repositories {
 dependencies {
     compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-26")
     compileOnly(files("libs/ChatControl-11.5.3.jar"))
-    compileOnly("me.clip:placeholderapi:2.11.6")
+    compileOnly("me.clip:placeholderapi:2.12.2")
     compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
     implementation("com.google.genai:google-genai:1.26.0")
     implementation("com.google.code.gson:gson:2.10.1")
