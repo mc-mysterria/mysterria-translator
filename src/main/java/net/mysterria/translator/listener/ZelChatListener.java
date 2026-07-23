@@ -22,7 +22,6 @@ import net.mysterria.translator.util.LanguageDetector;
 import net.mysterria.translator.util.MessageSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,7 +63,7 @@ public class ZelChatListener {
     }
 
     // Run last so all ZelChat internal modules have already processed chatMessage.
-    @ChatModuleSettings(pluginOwner = "MysterriaTranslator", priority = ModulePriority.HIGHEST)
+    @ChatModuleSettings(pluginOwner = "MysterriaTranslator", priority = ModulePriority.HIGH)
     private class TranslationChatModule implements ChatModule {
 
         @Override
@@ -101,11 +100,11 @@ public class ZelChatListener {
             }
 
             boolean globalChatEnabled = plugin.getConfig().getBoolean("chat.globalChat.enabled", false);
-            boolean rangeChatEnabled  = plugin.getConfig().getBoolean("chat.rangeChat.enabled", true);
-            String  globalPrefix      = plugin.getConfig().getString("chat.globalChat.prefix", "!");
+            boolean rangeChatEnabled = plugin.getConfig().getBoolean("chat.rangeChat.enabled", true);
+            String globalPrefix = plugin.getConfig().getString("chat.globalChat.prefix", "!");
 
             boolean isGlobal = globalChatEnabled && rawMessage.startsWith(globalPrefix);
-            boolean isRange  = globalChatEnabled && !isGlobal && rangeChatEnabled;
+            boolean isRange = globalChatEnabled && !isGlobal && rangeChatEnabled;
 
             if (globalChatEnabled && !isGlobal && !rangeChatEnabled) {
                 return;
@@ -234,7 +233,7 @@ public class ZelChatListener {
                                 if (result != null && result.wasTranslated() && !hasRichContent) {
                                     Component translated = zelFormatted.replaceText(b ->
                                             b.matchLiteral(messageText)
-                                             .replacement(Component.text(result.getTranslatedText())));
+                                                    .replacement(Component.text(result.getTranslatedText())));
                                     if (showHover) {
                                         translated = translated.hoverEvent(
                                                 HoverEvent.showText(buildTranslationHover(result)));
@@ -258,7 +257,7 @@ public class ZelChatListener {
     /**
      * Builds the range-chat Component using the custom format defined in config.
      *
-     * @param chatMessage   The ZelChat message (already processed by internal modules).
+     * @param chatMessage     The ZelChat message (already processed by internal modules).
      * @param messageOverride If non-null, used as the message text (for translations).
      *                        If null, chatMessage.getMessage() is used — preserving [inv] etc.
      */

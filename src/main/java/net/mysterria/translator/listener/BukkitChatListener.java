@@ -44,7 +44,7 @@ public class BukkitChatListener implements Listener {
         this.lastMessagePartners = new ConcurrentHashMap<>();
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onAsyncChat(AsyncChatEvent event) {
         if (!plugin.getConfig().getBoolean("translation.enabled", true)) {
             plugin.debug("Translation is disabled, skipping chat event");
