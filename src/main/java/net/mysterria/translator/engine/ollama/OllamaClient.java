@@ -15,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class OllamaClient {
 
@@ -47,14 +48,14 @@ public class OllamaClient {
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("Translation failed - " + e.getClass().getSimpleName() + ": " +
                              (e.getMessage() != null ? e.getMessage() : "No error message") +
                              " (Cause: " + (e.getCause() != null ? e.getCause().toString() : "Unknown") + ")");
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
@@ -135,5 +136,14 @@ public class OllamaClient {
         cleaned = cleaned.replaceAll("\\s{2,}", " ");
 
         return cleaned;
+    }
+
+    /** Releases the HTTP client's selector thread and connection pool (called on reload/disable). */
+    public void shutdown() {
+        try {
+            httpClient.shutdownNow();
+        } catch (Throwable t) {
+            plugin.debug("Failed to shut down Ollama HTTP client: " + t.getMessage());
+        }
     }
 }

@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 /**
  * Google Translate client using the unofficial free API.
@@ -43,12 +44,12 @@ public class GoogleClient {
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("Google Translate translation failed: " + e.getMessage());
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
@@ -180,7 +181,7 @@ public class GoogleClient {
     }
 
     public CompletableFuture<Boolean> isAvailable() {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 String testTranslation = translate("test", "auto", "en");
                 return testTranslation != null && !testTranslation.isEmpty();
@@ -188,5 +189,14 @@ public class GoogleClient {
                 return false;
             }
         });
+    }
+
+    /** Releases the HTTP client's selector thread and connection pool (called on reload/disable). */
+    public void shutdown() {
+        try {
+            httpClient.shutdownNow();
+        } catch (Throwable t) {
+            plugin.debug("Failed to shut down Google Translate HTTP client: " + t.getMessage());
+        }
     }
 }

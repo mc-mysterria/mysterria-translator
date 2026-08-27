@@ -7,6 +7,7 @@ import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
 import net.mysterria.translator.engine.ollama.OllamaClient;
 import net.mysterria.translator.engine.openai.OpenAIClient;
 import net.mysterria.translator.util.LanguageDetector;
+import net.mysterria.translator.util.Throwables;
 import org.bukkit.entity.Player;
 
 import java.util.Arrays;
@@ -168,9 +169,14 @@ public class TranslationManager {
                     String targetLang = entry.getKey();
                     Set<Player> playersForLang = entry.getValue();
 
+                    // handle() rather than thenAccept(): a failure for one target language
+                    // must not fail the whole allOf and strand the other recipients.
                     return fallbackHandler.translateWithFallback(message, sourceLangCode, targetLang)
-                            .thenAccept(result -> {
-                                if (result.translation() != null) {
+                            .handle((result, throwable) -> {
+                                if (throwable != null) {
+                                    plugin.debug("Translation failed for " + targetLang + ": " + Throwables.describe(throwable));
+                                }
+                                if (throwable == null && result.translation() != null) {
                                     cache.put(message, sourceLangCode, targetLang, result.translation());
                                     plugin.debug("[" + result.providerName().toUpperCase() + "] Translation result: \"" + message + "\" -> \"" + result.translation() + "\"");
 
@@ -184,6 +190,7 @@ public class TranslationManager {
                                                 TranslationResult.failed(message, "Translation service unavailable"));
                                     }
                                 }
+                                return null;
                             });
                 }).toArray(CompletableFuture[]::new)
         );

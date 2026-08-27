@@ -21,6 +21,7 @@ import net.mysterria.translator.storage.impl.SQLitePlayerLangStorage;
 import net.mysterria.translator.storage.impl.YamlPlayerLangStorage;
 import net.mysterria.translator.translation.RateLimitManager;
 import net.mysterria.translator.translation.TranslationManager;
+import net.mysterria.translator.translation.TranslationThreadPool;
 import net.mysterria.translator.util.ConfigValidator;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -38,6 +39,7 @@ public class MysterriaTranslator extends JavaPlugin {
     private PromptManager promptManager;
     private RateLimitManager suspensionManager;
     private TranslationManager translationManager;
+    private TranslationThreadPool translationPool;
 
     private FileConfiguration messagesConfig;
     private PlayerLangStorage storage;
@@ -70,6 +72,10 @@ public class MysterriaTranslator extends JavaPlugin {
         saveDefaultExamples();
 
         initDatabase();
+
+        // Must exist before any engine client — every provider call is dispatched onto it.
+        this.translationPool = new TranslationThreadPool(this);
+
         int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
         this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
         this.promptManager = new PromptManager(this);
@@ -134,6 +140,29 @@ public class MysterriaTranslator extends JavaPlugin {
         if (zelChatListener != null) {
             zelChatListener.unregister();
         }
+        if (translationManager != null) {
+            translationManager.shutdown();
+        }
+        shutdownEngineClients();
+        if (translationPool != null) {
+            translationPool.shutdown();
+        }
+    }
+
+    /**
+     * Closes every engine client's HTTP client. Without this each reload leaks the
+     * client's selector thread and its connection pool.
+     */
+    private void shutdownEngineClients() {
+        if (ollamaClient != null) ollamaClient.shutdown();
+        if (libreTranslateClient != null) libreTranslateClient.shutdown();
+        if (openAIClient != null) openAIClient.shutdown();
+        if (googleClient != null) googleClient.shutdown();
+        // GeminiClient uses HttpURLConnection and owns no pooled resources.
+    }
+
+    public TranslationThreadPool getTranslationPool() {
+        return translationPool;
     }
 
     private void initDatabase() {
@@ -262,11 +291,17 @@ public class MysterriaTranslator extends JavaPlugin {
             translationManager.shutdown();
         }
 
+        shutdownEngineClients();
+
         this.ollamaClient = null;
         this.libreTranslateClient = null;
         this.geminiClient = null;
         this.openAIClient = null;
         this.googleClient = null;
+
+        if (translationPool != null) {
+            translationPool.reconfigure();
+        }
 
 
         if (promptManager != null) {

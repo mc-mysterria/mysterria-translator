@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class OpenAIClient {
 
@@ -49,14 +50,14 @@ public class OpenAIClient {
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("OpenAI translation failed - " + e.getClass().getSimpleName() + ": " +
                              (e.getMessage() != null ? e.getMessage() : "No error message") +
                              " (Cause: " + (e.getCause() != null ? e.getCause().toString() : "Unknown") + ")");
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
@@ -178,4 +179,13 @@ public class OpenAIClient {
         return cleaned;
     }
 
+
+    /** Releases the HTTP client's selector thread and connection pool (called on reload/disable). */
+    public void shutdown() {
+        try {
+            httpClient.shutdownNow();
+        } catch (Throwable t) {
+            plugin.debug("Failed to shut down OpenAI HTTP client: " + t.getMessage());
+        }
+    }
 }

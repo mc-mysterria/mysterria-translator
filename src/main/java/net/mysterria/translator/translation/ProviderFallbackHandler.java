@@ -4,15 +4,25 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.mysterria.translator.MysterriaTranslator;
 import net.mysterria.translator.exception.RateLimitException;
+import net.mysterria.translator.util.Throwables;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * Handles provider fallback logic with retry mechanism and player notifications.
  * Manages the logic for trying multiple translation providers in sequence.
+ * <p>
+ * The whole chain is non-blocking: every hand-off between providers and every retry
+ * back-off is composed with {@code thenCompose}. An earlier version called
+ * {@code join()} from inside a completion callback and slept on the callback thread,
+ * which pinned a worker thread for the entire fallback chain — with a stalled provider
+ * that is exactly what exhausted the pool.
  */
 public class ProviderFallbackHandler {
 
@@ -21,6 +31,8 @@ public class ProviderFallbackHandler {
     private final TranslationExecutor executor;
     private volatile List<String> providers;
     private final int maxRetries;
+    private final long retryDelayMillis;
+    private final long overallTimeoutSeconds;
 
     private volatile String lastSuccessfulProvider = null;
     private volatile long lastFallbackNotificationTime = 0;
@@ -36,6 +48,8 @@ public class ProviderFallbackHandler {
         this.executor = executor;
         this.providers = providers;
         this.maxRetries = maxRetries;
+        this.retryDelayMillis = Math.max(0, plugin.getConfig().getLong("translation.retryDelayMillis", 1000L));
+        this.overallTimeoutSeconds = Math.max(1, plugin.getConfig().getLong("translation.overallTimeoutSeconds", 60L));
     }
 
     /**
@@ -51,6 +65,9 @@ public class ProviderFallbackHandler {
 
     /**
      * Attempts translation with automatic provider fallback and retry logic.
+     * <p>
+     * The returned future always completes within {@code translation.overallTimeoutSeconds}
+     * so callers waiting to deliver a chat message never hang indefinitely.
      *
      * @param message  The message to translate
      * @param fromLang Source language code
@@ -58,7 +75,15 @@ public class ProviderFallbackHandler {
      * @return CompletableFuture with the translation and provider name, or null if all failed
      */
     public CompletableFuture<TranslationWithProvider> translateWithFallback(String message, String fromLang, String toLang) {
-        return translateWithProviderFallback(message, fromLang, toLang, 0, 0);
+        CompletableFuture<TranslationWithProvider> chain =
+                translateWithProviderFallback(message, fromLang, toLang, 0, 0);
+
+        return plugin.getTranslationPool()
+                .withTimeout(chain, overallTimeoutSeconds, TimeUnit.SECONDS, "Translation request")
+                .exceptionally(throwable -> {
+                    plugin.debug("Translation chain failed: " + Throwables.describe(throwable));
+                    return TranslationWithProvider.failed();
+                });
     }
 
     /**
@@ -87,12 +112,14 @@ public class ProviderFallbackHandler {
     private CompletableFuture<TranslationWithProvider> translateWithProviderFallback(
             String message, String fromLang, String toLang, int providerIndex, int retryAttempt) {
 
-        if (providerIndex >= providers.size()) {
+        List<String> currentProviders = this.providers;
+
+        if (providerIndex >= currentProviders.size()) {
             plugin.debug("All translation providers failed");
             return CompletableFuture.completedFuture(TranslationWithProvider.failed());
         }
 
-        String currentProvider = providers.get(providerIndex);
+        String currentProvider = currentProviders.get(providerIndex);
 
         if (suspensionManager.isSuspended(currentProvider)) {
             plugin.debug("Provider '" + currentProvider + "' is currently suspended due to rate limits, skipping to next provider");
@@ -101,41 +128,58 @@ public class ProviderFallbackHandler {
 
         CompletableFuture<String> translationFuture = executor.execute(currentProvider, message, fromLang, toLang);
 
-        return translationFuture.handle((result, throwable) -> {
-            if (throwable != null) {
-
-                Throwable cause = throwable.getCause();
-                if (cause instanceof RateLimitException rateLimitEx) {
-                    suspensionManager.suspend(rateLimitEx);
-
-                    plugin.debug("Provider '" + currentProvider + "' hit rate limit (429), suspended and moving to next provider");
-                    checkAndNotifyFallback(currentProvider, providerIndex);
-                    return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
-                }
-
-                // Retry on other errors
-                if (retryAttempt < maxRetries) {
-                    try {
-                        Thread.sleep(1000L * (retryAttempt + 1));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+        return translationFuture
+                .handle((result, throwable) -> {
+                    if (throwable != null) {
+                        return handleFailure(message, fromLang, toLang, providerIndex, retryAttempt, currentProvider, throwable);
                     }
-                    return translateWithProviderFallback(message, fromLang, toLang, providerIndex, retryAttempt + 1).join();
-                }
 
-                plugin.debug("Provider '" + currentProvider + "' failed, trying next");
-                checkAndNotifyFallback(currentProvider, providerIndex);
-                return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
-            }
+                    if (result != null) {
+                        updateSuccessfulProvider(currentProvider, providerIndex);
+                        return CompletableFuture.completedFuture(TranslationWithProvider.of(result, currentProvider));
+                    }
 
-            if (result != null) {
-                updateSuccessfulProvider(currentProvider, providerIndex);
-                return TranslationWithProvider.of(result, currentProvider);
-            }
+                    checkAndNotifyFallback(currentProvider, providerIndex);
+                    return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0);
+                })
+                .thenCompose(Function.identity());
+    }
 
+    private CompletableFuture<TranslationWithProvider> handleFailure(
+            String message, String fromLang, String toLang, int providerIndex, int retryAttempt,
+            String currentProvider, Throwable throwable) {
+
+        // The real cause is wrapped several layers deep (CompletionException → RuntimeException → cause),
+        // so the whole chain has to be searched rather than only the immediate cause.
+        RateLimitException rateLimitEx = Throwables.findCause(throwable, RateLimitException.class);
+        if (rateLimitEx != null) {
+            suspensionManager.suspend(rateLimitEx);
+            plugin.debug("Provider '" + currentProvider + "' hit rate limit (429), suspended and moving to next provider");
             checkAndNotifyFallback(currentProvider, providerIndex);
-            return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0).join();
-        });
+            return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0);
+        }
+
+        // A rejection means the worker pool is saturated. Retrying or falling through to the
+        // next provider would only add load to the same pool, so give up on this message.
+        if (Throwables.findCause(throwable, RejectedExecutionException.class) != null) {
+            plugin.debug("Dropping translation: worker pool saturated (" + plugin.getTranslationPool().stats() + ")");
+            return CompletableFuture.completedFuture(TranslationWithProvider.failed());
+        }
+
+        if (retryAttempt < maxRetries) {
+            long delay = retryDelayMillis * (retryAttempt + 1L);
+            plugin.debug("Provider '" + currentProvider + "' failed (" + Throwables.describe(throwable)
+                    + "), retrying in " + delay + "ms");
+            return CompletableFuture
+                    .supplyAsync(
+                            () -> translateWithProviderFallback(message, fromLang, toLang, providerIndex, retryAttempt + 1),
+                            plugin.getTranslationPool().delayedExecutor(delay, TimeUnit.MILLISECONDS))
+                    .thenCompose(Function.identity());
+        }
+
+        plugin.debug("Provider '" + currentProvider + "' failed (" + Throwables.describe(throwable) + "), trying next");
+        checkAndNotifyFallback(currentProvider, providerIndex);
+        return translateWithProviderFallback(message, fromLang, toLang, providerIndex + 1, 0);
     }
 
     /**
@@ -161,11 +205,12 @@ public class ProviderFallbackHandler {
      * Checks if we're falling back from the primary provider and notifies if needed.
      */
     private void checkAndNotifyFallback(String failedProvider, int providerIndex) {
-        if (providerIndex == 0 && providerIndex + 1 < providers.size()) {
+        List<String> currentProviders = this.providers;
+        if (providerIndex == 0 && providerIndex + 1 < currentProviders.size()) {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastFallbackNotificationTime >= FALLBACK_NOTIFICATION_COOLDOWN_MS) {
                 lastFallbackNotificationTime = currentTime;
-                String nextProvider = providers.get(providerIndex + 1);
+                String nextProvider = currentProviders.get(providerIndex + 1);
                 plugin.getLogger().warning("Primary translation provider '" + failedProvider + "' is unavailable. " +
                         "Falling back to '" + nextProvider + "'. Translation quality may be degraded.");
                 notifyAllPlayers(Component.text("Primary translation provider ")
@@ -182,6 +227,9 @@ public class ProviderFallbackHandler {
      * Notifies all online players with a message.
      */
     private void notifyAllPlayers(Component message) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
         Bukkit.getScheduler().runTask(plugin, () -> {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 player.sendMessage(message);

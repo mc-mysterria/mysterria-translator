@@ -13,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class LibreTranslateClient {
 
@@ -45,12 +46,12 @@ public class LibreTranslateClient {
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("LibreTranslate translation failed: " + e.getMessage());
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
@@ -117,5 +118,14 @@ public class LibreTranslateClient {
             case "hindi", "hi_in", "hi" -> "hi";
             default -> langCode.length() > 2 ? langCode.substring(0, 2) : langCode;
         };
+    }
+
+    /** Releases the HTTP client's selector thread and connection pool (called on reload/disable). */
+    public void shutdown() {
+        try {
+            httpClient.shutdownNow();
+        } catch (Throwable t) {
+            plugin.debug("Failed to shut down LibreTranslate HTTP client: " + t.getMessage());
+        }
     }
 }

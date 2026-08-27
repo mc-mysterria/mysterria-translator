@@ -11,6 +11,7 @@ import net.mysterria.translator.translation.TranslationResult;
 import net.mysterria.translator.util.DisguiseUtil;
 import net.mysterria.translator.util.MessageSerializer;
 import net.mysterria.translator.util.LanguageDetector;
+import net.mysterria.translator.util.TranslationMarker;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -28,11 +29,13 @@ public class ChatControlListener implements Listener {
     private final MysterriaTranslator plugin;
     private final TranslationManager translationManager;
     private final Set<String> translatingMessages;
+    private final TranslationMarker marker;
 
     public ChatControlListener(MysterriaTranslator plugin, TranslationManager translationManager) {
         this.plugin = plugin;
         this.translationManager = translationManager;
         this.translatingMessages = ConcurrentHashMap.newKeySet();
+        this.marker = new TranslationMarker(plugin);
     }
 
     @EventHandler
@@ -326,11 +329,7 @@ public class ChatControlListener implements Listener {
 
             Component hoverText = null;
             if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
-                hoverText = Component.text("Original: " + result.getOriginalText())
-                        .color(NamedTextColor.GRAY)
-                        .append(Component.newline())
-                        .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                                .color(NamedTextColor.DARK_GRAY));
+                hoverText = marker.hover(result);
             }
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
@@ -357,11 +356,7 @@ public class ChatControlListener implements Listener {
 
             Component hoverText = null;
             if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
-                hoverText = Component.text("Original: " + result.getOriginalText())
-                        .color(NamedTextColor.GRAY)
-                        .append(Component.newline())
-                        .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                                .color(NamedTextColor.DARK_GRAY));
+                hoverText = marker.hover(result);
             }
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
@@ -382,11 +377,7 @@ public class ChatControlListener implements Listener {
 
             Component hoverText = null;
             if (isTranslated && result != null && plugin.getConfig().getBoolean("chatcontrol.display.showHover", true)) {
-                hoverText = Component.text("Original: " + result.getOriginalText())
-                        .color(NamedTextColor.GRAY)
-                        .append(Component.newline())
-                        .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                                .color(NamedTextColor.DARK_GRAY));
+                hoverText = marker.hover(result);
             }
 
             return createCustomFormattedMessage(sender, message, format, hoverText, result);
@@ -403,9 +394,13 @@ public class ChatControlListener implements Listener {
     }
 
     private Component createCustomFormattedMessage(Player sender, String message, String format, Component hoverText, TranslationResult result) {
+        // Machine translations often read oddly — prefix the marker so recipients can tell
+        // this is not what the sender typed.
+        String displayed = (result != null && result.wasTranslated()) ? marker.rawIndicator() + message : message;
+
         String formatted = format
                 .replace("{player_name}", DisguiseUtil.getChatName(sender))
-                .replace("{translated_message}", message)
+                .replace("{translated_message}", displayed)
                 .replace("{original_message}", message);
 
 
@@ -440,9 +435,11 @@ public class ChatControlListener implements Listener {
     }
 
     private Component createCustomFormattedMessage(CommandSender sender, String message, String format, Component hoverText, TranslationResult result) {
+        String displayed = (result != null && result.wasTranslated()) ? marker.rawIndicator() + message : message;
+
         String formatted = format
                 .replace("{player_name}", sender.getName())
-                .replace("{translated_message}", message)
+                .replace("{translated_message}", displayed)
                 .replace("{original_message}", message);
 
 

@@ -12,6 +12,7 @@ import net.mysterria.translator.translation.TranslationManager;
 import net.mysterria.translator.translation.TranslationResult;
 import net.mysterria.translator.util.LanguageDetector;
 import net.mysterria.translator.util.MessageSerializer;
+import net.mysterria.translator.util.TranslationMarker;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -28,6 +29,7 @@ public class BukkitChatListener implements Listener {
     private final TranslationManager translationManager;
     private final Set<String> translatingMessages;
     private final java.util.Map<java.util.UUID, java.util.UUID> lastMessagePartners;
+    private final TranslationMarker marker;
 
     private static final Set<String> PRIVATE_MESSAGE_COMMANDS = Set.of(
             "msg", "tell", "w", "whisper", "message", "pm"
@@ -42,6 +44,7 @@ public class BukkitChatListener implements Listener {
         this.translationManager = translationManager;
         this.translatingMessages = ConcurrentHashMap.newKeySet();
         this.lastMessagePartners = new ConcurrentHashMap<>();
+        this.marker = new TranslationMarker(plugin);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
@@ -328,11 +331,7 @@ public class BukkitChatListener implements Listener {
 
         Component hoverText = null;
         if (showHover) {
-            hoverText = Component.text("Original: " + result.getOriginalText())
-                    .color(NamedTextColor.GRAY)
-                    .append(Component.newline())
-                    .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                            .color(NamedTextColor.DARK_GRAY));
+            hoverText = marker.hover(result);
         }
 
         String pmPrefix = isPrivate ? "[PM] " : "";
@@ -341,24 +340,25 @@ public class BukkitChatListener implements Listener {
 
         Component messageContent = Component.text(result.getTranslatedText())
                 .color(NamedTextColor.WHITE);
-        if (showHover) {
+        if (showHover && hoverText != null) {
             messageContent = messageContent.hoverEvent(HoverEvent.showText(hoverText));
         }
 
         switch (displayMode.toLowerCase()) {
             case "replace":
-                
+                // Even in replace mode the message is still marked — otherwise the
+                // translation is indistinguishable from what the sender typed.
                 return Component.text(pmPrefix + senderFormat)
                         .color(baseColor)
+                        .append(marker.indicator())
                         .append(messageContent);
 
             case "separate":
                 
                 Component translationIndicator = Component.text(prefix + " ")
                         .color(color);
-                if (showHover) {
-                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(
-                            Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+                if (showHover && hoverText != null) {
+                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text(pmPrefix + senderFormat)
                         .color(baseColor)
@@ -376,9 +376,8 @@ public class BukkitChatListener implements Listener {
                 
                 Component indicator = Component.text("ᵀ ")
                         .color(color);
-                if (showHover) {
-                    indicator = indicator.hoverEvent(HoverEvent.showText(
-                            Component.text("Translated message").color(NamedTextColor.GRAY)));
+                if (showHover && hoverText != null) {
+                    indicator = indicator.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text(pmPrefix + senderFormat)
                         .color(baseColor)
@@ -401,11 +400,7 @@ public class BukkitChatListener implements Listener {
 
         Component hoverText = null;
         if (showHover) {
-            hoverText = Component.text("Original: " + result.getOriginalText())
-                    .color(NamedTextColor.GRAY)
-                    .append(Component.newline())
-                    .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                            .color(NamedTextColor.DARK_GRAY));
+            hoverText = marker.hover(result);
         }
 
         switch (displayMode.toLowerCase()) {
@@ -413,27 +408,27 @@ public class BukkitChatListener implements Listener {
                 
                 Component translatedText = Component.text(result.getTranslatedText())
                         .color(NamedTextColor.WHITE);
-                if (showHover) {
+                if (showHover && hoverText != null) {
                     translatedText = translatedText.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text("<" + sender.getName() + "> ")
                         .color(NamedTextColor.WHITE)
+                        .append(marker.indicator())
                         .append(translatedText);
 
             case "separate":
                 
                 Component translationIndicator = Component.text(prefix + " ")
                         .color(color);
-                if (showHover) {
-                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(
-                            Component.text("This message was automatically translated").color(NamedTextColor.GRAY)));
+                if (showHover && hoverText != null) {
+                    translationIndicator = translationIndicator.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text("<" + sender.getName() + "> ")
                         .color(NamedTextColor.WHITE)
                         .append(translationIndicator)
                         .append(Component.text(result.getTranslatedText())
                                 .color(NamedTextColor.WHITE)
-                                .hoverEvent(showHover ? HoverEvent.showText(hoverText) : null));
+                                .hoverEvent(showHover && hoverText != null ? HoverEvent.showText(hoverText) : null));
 
             case "custom":
                 
@@ -446,13 +441,12 @@ public class BukkitChatListener implements Listener {
                 
                 Component indicator = Component.text("ᵀ ")
                         .color(color);
-                if (showHover) {
-                    indicator = indicator.hoverEvent(HoverEvent.showText(
-                            Component.text("Translated message").color(NamedTextColor.GRAY)));
+                if (showHover && hoverText != null) {
+                    indicator = indicator.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 Component message = Component.text(result.getTranslatedText())
                         .color(NamedTextColor.WHITE);
-                if (showHover) {
+                if (showHover && hoverText != null) {
                     message = message.hoverEvent(HoverEvent.showText(hoverText));
                 }
                 return Component.text("<" + sender.getName() + "> ")
@@ -476,9 +470,11 @@ public class BukkitChatListener implements Listener {
     }
 
     private Component createCustomFormattedMessage(TranslationResult result, Player sender, String customFormat, Component hoverText) {
+        // Machine translations often read oddly — prefix the marker so recipients can tell
+        // this is not what the sender typed.
         String formatted = customFormat
                 .replace("{player_name}", sender.getName())
-                .replace("{translated_message}", result.getTranslatedText())
+                .replace("{translated_message}", marker.rawIndicator() + result.getTranslatedText())
                 .replace("{original_message}", result.getOriginalText())
                 .replace("{source_language}", result.getSourceLanguage())
                 .replace("{target_language}", result.getTargetLanguage());
@@ -653,13 +649,9 @@ public class BukkitChatListener implements Listener {
                 boolean showHover = plugin.getConfig().getBoolean("chatcontrol.display.showHover", true);
                 Component hoverText = null;
                 if (showHover) {
-                    hoverText = Component.text("Original: " + result.getOriginalText())
-                            .color(NamedTextColor.GRAY)
-                            .append(Component.newline())
-                            .append(Component.text("Translated from " + result.getSourceLanguage() + " to " + result.getTargetLanguage())
-                                    .color(NamedTextColor.DARK_GRAY));
+                    hoverText = marker.hover(result);
                 }
-                return createCustomGlobalMessage(sender, message, format, hoverText);
+                return createCustomGlobalMessage(sender, marker.rawIndicator() + message, format, hoverText);
             } else {
                 
                 String originalFormat = format.replace("&bГ", "&eG"); 

@@ -56,8 +56,38 @@ translation:
   rateLimitWindowSeconds: 10
   # How long (minutes) to suspend an engine after receiving HTTP 429.
   rateLimitSuspensionMinutes: 20
+  # Back-off before retrying the same engine, multiplied by the attempt number.
+  retryDelayMillis: 1000
+  # Hard ceiling for one message's whole provider chain (all fallbacks and retries).
+  # Safety net so a stalled engine can never hold up chat delivery.
+  overallTimeoutSeconds: 60
   # Extra debug output for translation events.
   debug: true
+
+  # Every provider call runs on this pool. It caps both the number of threads and the
+  # number of requests in flight — translation must never run on the JVM common pool,
+  # which spawns a new compensation thread for every blocked worker.
+  threadPool:
+    # Concurrent provider requests. Raise if chat is busy and translations lag behind;
+    # lower if the engine is rate-limiting you.
+    size: 6
+    # Requests waiting for a free thread. Beyond this, messages are delivered
+    # untranslated rather than queueing without bound.
+    queueCapacity: 256
+
+  # Marks machine-translated messages so players can tell them apart from what the
+  # sender actually typed — automatic translations often read a little oddly.
+  indicator:
+    # Master switch for both the glyph and its hover.
+    enabled: true
+    # Inserted immediately before the translated text.
+    text: "&bᵀ "
+    # Hover shown on the translated text, one entry per line.
+    # Placeholders: {original}, {source}, {target}
+    hover:
+      - "&7Original: &f{original}"
+      - "&8Automatically translated ({source} → {target})"
+      - "&8Wording may be imperfect."
 
 # -------------------------------------------------- #
 #              Translation Engines                   #

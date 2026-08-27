@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
 
 public class GeminiClient {
@@ -50,23 +51,23 @@ public class GeminiClient {
     }
 
     public CompletableFuture<String> translateAsync(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translate(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("Gemini translation failed: " + e.getMessage());
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
 
     public CompletableFuture<String> translateAsyncWithContext(String text, String fromLang, String toLang) {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             try {
                 return translateWithContext(text, fromLang, toLang);
             } catch (Exception e) {
                 plugin.debug("Gemini translation with context failed: " + e.getMessage());
-                throw new RuntimeException(e);
+                throw new CompletionException(e);
             }
         });
     }
@@ -297,7 +298,7 @@ public class GeminiClient {
     }
 
     public CompletableFuture<Boolean> isAvailable() {
-        return CompletableFuture.supplyAsync(() -> {
+        return plugin.getTranslationPool().supply(() -> {
             if (apiKeys.isEmpty()) {
                 return false;
             }

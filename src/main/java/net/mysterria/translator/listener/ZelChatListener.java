@@ -12,7 +12,6 @@ import me.clip.placeholderapi.PlaceholderAPI;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.mysterria.translator.MysterriaTranslator;
@@ -20,6 +19,7 @@ import net.mysterria.translator.translation.TranslationManager;
 import net.mysterria.translator.translation.TranslationResult;
 import net.mysterria.translator.util.LanguageDetector;
 import net.mysterria.translator.util.MessageSerializer;
+import net.mysterria.translator.util.TranslationMarker;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
@@ -44,12 +44,14 @@ public class ZelChatListener {
     private final TranslationManager translationManager;
     private final Set<String> translatingMessages;
     private final ChatModule module;
+    private final TranslationMarker marker;
 
     public ZelChatListener(MysterriaTranslator plugin, TranslationManager translationManager) {
         this.plugin = plugin;
         this.translationManager = translationManager;
         this.translatingMessages = ConcurrentHashMap.newKeySet();
         this.module = new TranslationChatModule();
+        this.marker = new TranslationMarker(plugin);
     }
 
     public void register() {
@@ -162,7 +164,7 @@ public class ZelChatListener {
                 chatMessage.setState(MessageState.CANCELLED);
 
                 // Capture the processed message Component now, while still in this thread
-                final Component directComponent = buildCustomRangeComponent(chatMessage, null);
+                final Component directComponent = buildCustomRangeComponent(chatMessage, null, null);
 
                 // Send to sender + non-translated players
                 Bukkit.getScheduler().runTask(plugin, () ->
@@ -190,7 +192,7 @@ public class ZelChatListener {
                                 for (Player player : translationNeeded) {
                                     TranslationResult result = results.get(player.getUniqueId().toString());
                                     if (result != null && result.wasTranslated() && !hasRichContent) {
-                                        player.sendMessage(buildCustomRangeComponent(chatMessage, result.getTranslatedText()));
+                                        player.sendMessage(buildCustomRangeComponent(chatMessage, result.getTranslatedText(), result));
                                     } else {
                                         player.sendMessage(directComponent);
                                     }
@@ -231,13 +233,12 @@ public class ZelChatListener {
                             for (Player player : translationNeeded) {
                                 TranslationResult result = results.get(player.getUniqueId().toString());
                                 if (result != null && result.wasTranslated() && !hasRichContent) {
+                                    // Mark and hover the replaced text only, so ZelChat's own
+                                    // format hover/click on the rest of the line is preserved.
+                                    Component replacement = marker.decorate(
+                                            Component.text(result.getTranslatedText()), result, showHover);
                                     Component translated = zelFormatted.replaceText(b ->
-                                            b.matchLiteral(messageText)
-                                                    .replacement(Component.text(result.getTranslatedText())));
-                                    if (showHover) {
-                                        translated = translated.hoverEvent(
-                                                HoverEvent.showText(buildTranslationHover(result)));
-                                    }
+                                            b.matchLiteral(messageText).replacement(replacement));
                                     player.sendMessage(translated);
                                 } else {
                                     player.sendMessage(zelFormatted);
@@ -260,8 +261,11 @@ public class ZelChatListener {
      * @param chatMessage     The ZelChat message (already processed by internal modules).
      * @param messageOverride If non-null, used as the message text (for translations).
      *                        If null, chatMessage.getMessage() is used — preserving [inv] etc.
+     * @param result          The translation behind {@code messageOverride}, used to add the
+     *                        machine-translation marker. Null for the untranslated component.
      */
-    private Component buildCustomRangeComponent(@NotNull ChatMessage chatMessage, @Nullable String messageOverride) {
+    private Component buildCustomRangeComponent(@NotNull ChatMessage chatMessage, @Nullable String messageOverride,
+                                                @Nullable TranslationResult result) {
         Player sender = chatMessage.getBukkitPlayer();
         boolean hasPapi = Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null;
 
@@ -278,9 +282,16 @@ public class ZelChatListener {
         // instead of just sitting next to it as a sibling node.
         formatStr = formatStr.replace("{message}", "<cc_msg>");
 
-        Component messageContent = messageOverride != null
-                ? Component.text(messageOverride)
-                : chatMessage.getMessage();   // already processed by ZelChat: [inv], [item], etc.
+        Component messageContent;
+        if (messageOverride != null) {
+            messageContent = Component.text(messageOverride);
+            if (result != null) {
+                boolean showHover = plugin.getConfig().getBoolean("zelchat.display.showHover", true);
+                messageContent = marker.decorate(messageContent, result, showHover);
+            }
+        } else {
+            messageContent = chatMessage.getMessage();   // already processed by ZelChat: [inv], [item], etc.
+        }
 
         TagResolver msgTag = TagResolver.resolver("cc_msg", Tag.inserting(messageContent));
         Component full = MessageSerializer.getMiniMessage().deserialize(formatStr, msgTag);
@@ -370,15 +381,5 @@ public class ZelChatListener {
             plugin.debug("ZelChat: failed to look up format '" + name + "': " + e.getMessage());
         }
         return null;
-    }
-
-    @NotNull
-    private Component buildTranslationHover(@NotNull TranslationResult result) {
-        return Component.text("Original: " + result.getOriginalText())
-                .color(NamedTextColor.GRAY)
-                .append(Component.newline())
-                .append(Component.text("Translated from " + result.getSourceLanguage()
-                                + " to " + result.getTargetLanguage())
-                        .color(NamedTextColor.DARK_GRAY));
     }
 }
