@@ -156,15 +156,17 @@ public class ZelChatListener {
             // skip translation for those recipients and let them see the original Component.
             final boolean hasRichContent = ZELCHAT_TOKEN_PATTERN.matcher(messageText).find();
 
+            final String possessedIdentity = isRange ? net.mysterria.translator.util.PossessedChatIdentity.capture(sender) : null;
+
             // --- Step 4: Custom range format (optional) ---
             // When configured, we cancel ZelChat's delivery entirely and build the Component
             // ourselves. chatMessage.getMessage() already has [inv], [item], etc. expanded
             // because ZelChat's internal HIGHEST-priority modules run before ours.
-            if (isRange && hasCustomRangeFormat()) {
+            if (isRange && (hasCustomRangeFormat() || possessedIdentity != null)) {
                 chatMessage.setState(MessageState.CANCELLED);
 
                 // Capture the processed message Component now, while still in this thread
-                final Component directComponent = buildCustomRangeComponent(chatMessage, null, null);
+                final Component directComponent = buildCustomRangeComponent(chatMessage, null, null, possessedIdentity);
 
                 // Send to sender + non-translated players
                 Bukkit.getScheduler().runTask(plugin, () ->
@@ -192,7 +194,7 @@ public class ZelChatListener {
                                 for (Player player : translationNeeded) {
                                     TranslationResult result = results.get(player.getUniqueId().toString());
                                     if (result != null && result.wasTranslated() && !hasRichContent) {
-                                        player.sendMessage(buildCustomRangeComponent(chatMessage, result.getTranslatedText(), result));
+                                        player.sendMessage(buildCustomRangeComponent(chatMessage, result.getTranslatedText(), result, possessedIdentity));
                                     } else {
                                         player.sendMessage(directComponent);
                                     }
@@ -265,7 +267,7 @@ public class ZelChatListener {
      *                        machine-translation marker. Null for the untranslated component.
      */
     private Component buildCustomRangeComponent(@NotNull ChatMessage chatMessage, @Nullable String messageOverride,
-                                                @Nullable TranslationResult result) {
+                                                @Nullable TranslationResult result, @Nullable String possessedIdentity) {
         Player sender = chatMessage.getBukkitPlayer();
         boolean hasPapi = Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null;
 
@@ -274,6 +276,8 @@ public class ZelChatListener {
 
         // Resolve all PAPI placeholders in the full format string first, then convert
         // everything (§ codes, &#hex, &x&hex, &c…) to MiniMessage syntax in one pass.
+        if (possessedIdentity != null && !hasCustomRangeFormat()) formatStr = "[R] <coi_identity> >> {message}";
+        formatStr = net.mysterria.translator.util.PossessedChatIdentity.localFormat(formatStr, possessedIdentity);
         if (hasPapi) formatStr = PlaceholderAPI.setPlaceholders(sender, formatStr);
         formatStr = MessageSerializer.prepareForMiniMessage(formatStr);
 
@@ -294,9 +298,13 @@ public class ZelChatListener {
         }
 
         TagResolver msgTag = TagResolver.resolver("cc_msg", Tag.inserting(messageContent));
-        Component full = MessageSerializer.getMiniMessage().deserialize(formatStr, msgTag);
+        TagResolver identityTag = TagResolver.resolver("coi_identity", Tag.inserting(
+                Component.text(possessedIdentity != null ? possessedIdentity : sender.getName())));
+        Component full = MessageSerializer.getMiniMessage().deserialize(formatStr, msgTag, identityTag);
 
         // ── Hover ────────────────────────────────────────────────────────────
+        if (possessedIdentity != null) return full;
+
         String hoverStr = plugin.getConfig().getString("zelchat.rangeChat.format.hover", "").trim();
         if (!hoverStr.isEmpty()) {
             if (hasPapi) hoverStr = PlaceholderAPI.setPlaceholders(sender, hoverStr);
