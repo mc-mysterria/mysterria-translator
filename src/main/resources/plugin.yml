@@ -4,7 +4,7 @@ author: 'Mysterria'
 main: net.mysterria.translator.MysterriaTranslator
 api-version: '1.21'
 depend: [ PlaceholderAPI, ZelChat ]
-softdepend: [ ChatControl, LibsDisguises, CircleOfImagination ]
+soft-depend: [ ChatControl, LibsDisguises ]
 commands:
   lang:
     description: Main command of mtranslator

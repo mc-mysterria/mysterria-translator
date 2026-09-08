@@ -36,9 +36,6 @@ repositories {
 }
 
 dependencies {
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
-    testImplementation("io.papermc.paper:paper-api:26.1.2.build.+")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-26")
     compileOnly(files("libs/ChatControl-11.5.3.jar"))
     compileOnly("me.clip:placeholderapi:2.12.2")
@@ -48,8 +45,6 @@ dependencies {
     compileOnlyApi("me.libraryaddict.disguises:libsdisguises:11.0.16")
     compileOnly("com.github.retrooper:packetevents-spigot:2.12.1")
 }
-
-tasks.test { useJUnitPlatform() }
 
 tasks.named("build") {
     dependsOn(tasks.named("shadowJar"))
