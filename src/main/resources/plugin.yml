@@ -1,16 +1,11 @@
 name: MysterriaTranslator
-version: '${project.version}'
-author: 'Mysterria'
+version: '${version}'
+author: Mysterria
 main: net.mysterria.translator.MysterriaTranslator
-api-version: '1.21'
-depend: [ PlaceholderAPI, ZelChat ]
-soft-depend: [ ChatControl, LibsDisguises ]
-commands:
-  lang:
-    description: Main command of mtranslator
-    usage: /<command> [help|set|get|list|reload]
-    aliases: [ translator, language ]
+api-version: '26.3'
+depend: [ PlaceholderAPI ]
+softdepend: [ ZelChat, ChatControl, LibsDisguises ]
 permissions:
   mtranslator.admin:
-    description: Total access to mtranslator commands
+    description: Manage other players' languages, reload and inspect translation engines
     default: op

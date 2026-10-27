@@ -1,354 +1,164 @@
 package net.mysterria.translator;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.mysterria.translator.command.LangCommand;
-import net.mysterria.translator.engine.gemini.GeminiClient;
-import net.mysterria.translator.engine.google.GoogleClient;
-import net.mysterria.translator.engine.libretranslate.LibreTranslateClient;
-import net.mysterria.translator.engine.ollama.OllamaClient;
-import net.mysterria.translator.engine.openai.OpenAIClient;
-import net.mysterria.translator.listener.BukkitChatListener;
-import net.mysterria.translator.listener.ChatControlListener;
-import net.mysterria.translator.listener.PlayerJoinListener;
-import net.mysterria.translator.listener.ZelChatListener;
-import net.mysterria.translator.manager.LangManager;
-import net.mysterria.translator.manager.PromptManager;
-import net.mysterria.translator.placeholder.LangExpansion;
-import net.mysterria.translator.storage.PlayerLangStorage;
-import net.mysterria.translator.storage.impl.MySQLPlayerLangStorage;
-import net.mysterria.translator.storage.impl.SQLitePlayerLangStorage;
-import net.mysterria.translator.storage.impl.YamlPlayerLangStorage;
-import net.mysterria.translator.translation.RateLimitManager;
-import net.mysterria.translator.translation.TranslationManager;
-import net.mysterria.translator.translation.TranslationThreadPool;
-import net.mysterria.translator.util.ConfigValidator;
-import org.bukkit.Bukkit;
-import org.bukkit.configuration.file.FileConfiguration;
+import lombok.AccessLevel;
+import lombok.Getter;
+import net.mysterria.translator.command.player.LangCommand;
+import net.mysterria.translator.config.Messages;
+import net.mysterria.translator.config.TranslatorConfig;
+import net.mysterria.translator.config.models.TranslationSettings;
+import net.mysterria.translator.domain.chat.listener.BukkitChatListener;
+import net.mysterria.translator.domain.chat.listener.ChatControlListener;
+import net.mysterria.translator.domain.chat.listener.ZelChatListener;
+import net.mysterria.translator.domain.chat.service.ChatTranslationService;
+import net.mysterria.translator.domain.chat.service.TranslationMarker;
+import net.mysterria.translator.domain.language.placeholder.LanguagePlaceholders;
+import net.mysterria.translator.domain.language.service.LanguageService;
+import net.mysterria.translator.domain.preference.listener.PreferenceListener;
+import net.mysterria.translator.domain.preference.service.PreferenceService;
+import net.mysterria.translator.domain.translation.service.EngineChain;
+import net.mysterria.translator.domain.translation.service.PromptService;
+import net.mysterria.translator.domain.translation.service.TranslationService;
+import net.mysterria.translator.domain.translation.service.TranslationThreadPool;
+import net.mysterria.translator.domain.translation.type.TranslationEngine;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.List;
 
+@Getter
 public class MysterriaTranslator extends JavaPlugin {
 
-    public static MysterriaTranslator plugin;
-
-    private LangManager langManager;
-    private PromptManager promptManager;
-    private RateLimitManager suspensionManager;
-    private TranslationManager translationManager;
-    private TranslationThreadPool translationPool;
-
-    private FileConfiguration messagesConfig;
-    private PlayerLangStorage storage;
-
-    private ZelChatListener zelChatListener;
-
-    private OllamaClient ollamaClient;
-    private LibreTranslateClient libreTranslateClient;
-    private GeminiClient geminiClient;
-    private OpenAIClient openAIClient;
-    private GoogleClient googleClient;
-
-    private void startingBanner() {
-        String pluginName = "MysterriaTranslator";
-        log("Starting " + pluginName + " by Mysterria");
-        String pluginDescription = "The Multi-Language Plugin";
-        log(pluginDescription);
-    }
+    private Messages messages;
+    private PromptService prompts;
+    private PreferenceService preferences;
+    private LanguageService languages;
+    private TranslationThreadPool threadPool;
+    private EngineChain engines;
+    private TranslationService translations;
+    private ChatTranslationService chat;
+    @Getter(AccessLevel.NONE)
+    private volatile TranslatorConfig settings;
+    @Getter(AccessLevel.NONE)
+    private HttpClient http;
+    @Getter(AccessLevel.NONE)
+    private ZelChatListener zelChat;
 
     @Override
     public void onEnable() {
-        plugin = this;
-
-        long startTime = System.currentTimeMillis();
-
-        startingBanner();
-
         saveDefaultConfig();
-        saveDefaultMessagesConfig();
-        saveDefaultExamples();
+        saveDefaultLanguages();
+        TranslatorConfig config = new TranslatorConfig(getConfig());
 
-        initDatabase();
+        messages = new Messages(this);
+        prompts = new PromptService(this);
+        preferences = new PreferenceService(getDataFolder(), getSLF4JLogger(), config.getStorage(), config.getDefaultLang());
+        languages = new LanguageService(getDataFolder(), getSLF4JLogger(), preferences, messages);
+        threadPool = new TranslationThreadPool(getSLF4JLogger(), config.getTranslation());
+        engines = new EngineChain(this, threadPool);
+        translations = new TranslationService(engines);
+        chat = new ChatTranslationService(this, translations, preferences, new TranslationMarker());
 
-        // Must exist before any engine client — every provider call is dispatched onto it.
-        this.translationPool = new TranslationThreadPool(this);
-
-        int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
-        this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
-        this.promptManager = new PromptManager(this);
-
-        this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("engines.ollama.url"), getConfig().getString("engines.ollama.model"), getConfig().getString("engines.ollama.apiKey"));
-
-        this.libreTranslateClient = new LibreTranslateClient(this,
-                getConfig().getString("engines.libretranslate.url"),
-                getConfig().getString("engines.libretranslate.apiKey"),
-                getConfig().getInt("engines.libretranslate.alternatives", 3),
-                getConfig().getString("engines.libretranslate.format", "text"));
-        this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("engines.gemini.apiKeys"));
-
-        this.openAIClient = new OpenAIClient(this, promptManager,
-                getConfig().getString("engines.openai.baseUrl", "https://api.openai.com/v1"),
-                getConfig().getString("engines.openai.model", "gpt-4o-mini"),
-                getConfig().getString("engines.openai.apiKey", ""));
-
-        this.googleClient = new GoogleClient(this);
-
-        this.langManager = new LangManager(this, storage);
-
-        this.translationManager = new TranslationManager(this, suspensionManager,
-                ollamaClient, libreTranslateClient, geminiClient, openAIClient, googleClient);
-
-        langManager.loadAll();
-
-        log("Configuration successfully loaded.");
-        log("Loaded " + langManager.getAvailableLangs().size() + " languages! " + langManager.getAvailableLangs());
-        log("Loaded " + langManager.getTotalTranslationsCount() + " total translations!");
-
-        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
-            new LangExpansion(langManager).register();
-            log("Registered PlaceholderAPI expansion.");
-        } else {
-            getLogger().warning("Could not find PlaceholderAPI! This plugin is required.");
-            getLogger().warning("Disabling mtranslator...");
-            Bukkit.getPluginManager().disablePlugin(this);
+        List<String> errors = apply(config, true);
+        if (!errors.isEmpty()) {
+            getSLF4JLogger().error("config.yml has {} problem(s), chat translation stays off until they are fixed and /lang reload is run:", errors.size());
+            errors.forEach(error -> getSLF4JLogger().error("  - {}", error));
         }
+        languages.load(config.getDefaultLang());
 
-        Objects.requireNonNull(getCommand("lang")).setExecutor(new LangCommand(langManager, this));
-        getServer().getPluginManager().registerEvents(new PlayerJoinListener(langManager, this), this);
+        new LanguagePlaceholders(languages, preferences, getPluginMeta().getVersion()).register();
+        registerListeners();
+        registerCommand("lang", "Choose your languages and chat translation", List.of("translator", "language"), new LangCommand(this));
 
-        if (Bukkit.getPluginManager().getPlugin("ZelChat") != null) {
-            zelChatListener = new ZelChatListener(this, translationManager);
-            zelChatListener.register();
-            log("Registered ZelChat integration module.");
-        } else if (Bukkit.getPluginManager().getPlugin("ChatControl") != null) {
-            getServer().getPluginManager().registerEvents(new ChatControlListener(this, translationManager), this);
-            log("Registered ChatControl integration listener.");
-        } else {
-            getServer().getPluginManager().registerEvents(new BukkitChatListener(this, translationManager), this);
-            log("ChatControl not found, using Bukkit events fallback.");
-        }
-
-        long endTime = System.currentTimeMillis();
-        log("\u001B[1;32mPlugin loaded successfully in " + (endTime - startTime) + "ms\u001B[0m");
+        getSLF4JLogger().info("Loaded {} language(s) with {} entries, translating through {}",
+                languages.available().size(), languages.entryCount(), String.join(" -> ", config.getTranslation().getProviders()));
     }
 
     @Override
     public void onDisable() {
-        if (zelChatListener != null) {
-            zelChatListener.unregister();
+        if (zelChat != null) {
+            zelChat.unregister();
         }
-        if (translationManager != null) {
-            translationManager.shutdown();
+        if (threadPool != null) {
+            threadPool.shutdown();
         }
-        shutdownEngineClients();
-        if (translationPool != null) {
-            translationPool.shutdown();
+        if (http != null) {
+            http.shutdownNow();
         }
-    }
-
-    /**
-     * Closes every engine client's HTTP client. Without this each reload leaks the
-     * client's selector thread and its connection pool.
-     */
-    private void shutdownEngineClients() {
-        if (ollamaClient != null) ollamaClient.shutdown();
-        if (libreTranslateClient != null) libreTranslateClient.shutdown();
-        if (openAIClient != null) openAIClient.shutdown();
-        if (googleClient != null) googleClient.shutdown();
-        // GeminiClient uses HttpURLConnection and owns no pooled resources.
-    }
-
-    public TranslationThreadPool getTranslationPool() {
-        return translationPool;
-    }
-
-    private void initDatabase() {
-        String storageType = getConfig().getString("storage.type", "yaml").toLowerCase();
-        log("Loading storage...");
-        if (storageType.equals("sqlite")) {
-            try {
-                storage = new SQLitePlayerLangStorage(getDataFolder() + "/players.db");
-                migrateYamlToStorage(storage);
-            } catch (Exception e) {
-                getLogger().severe("Error on connecting to SQLite! Using YAML.");
-                storage = new YamlPlayerLangStorage(new File(getDataFolder(), "players.yml"));
-            }
-        } else if (storageType.equals("mysql")) {
-            try {
-                String host = getConfig().getString("storage.mysql.host");
-                int port = getConfig().getInt("storage.mysql.port");
-                String db = getConfig().getString("storage.mysql.database");
-                String user = getConfig().getString("storage.mysql.user");
-                String pass = getConfig().getString("storage.mysql.password");
-                storage = new MySQLPlayerLangStorage(host, port, db, user, pass);
-                migrateYamlToStorage(storage);
-            } catch (Exception e) {
-                getLogger().severe("Error on connecting to MySQL! Using YAML.");
-                storage = new YamlPlayerLangStorage(new File(getDataFolder(), "players.yml"));
-            }
-        } else {
-            storage = new YamlPlayerLangStorage(new File(getDataFolder(), "players.yml"));
-        }
-        log("Database successfully initialized (" + storageType.toUpperCase() + ")");
-    }
-
-    private void migrateYamlToStorage(PlayerLangStorage targetStorage) {
-        String storageType = Objects.requireNonNull(getConfig().getString("storage.type")).toLowerCase();
-        File yamlFile = new File(getDataFolder(), "players.yml");
-        if (!yamlFile.exists()) return;
-        YamlPlayerLangStorage yamlStorage = new YamlPlayerLangStorage(yamlFile);
-        
-        Map<UUID, String> allLangs = yamlStorage.loadAll();
-        for (java.util.Map.Entry<java.util.UUID, String> entry : allLangs.entrySet()) {
-            targetStorage.savePlayerLang(entry.getKey(), entry.getValue());
-        }
-        
-        Map<java.util.UUID, Boolean> allStatus = yamlStorage.loadAllEnabledStatus();
-        for (java.util.Map.Entry<java.util.UUID, Boolean> entry : allStatus.entrySet()) {
-            targetStorage.setTranslationEnabled(entry.getKey(), entry.getValue());
-        }
-        
-        getLogger().info("Migrated " + allLangs.size() + " players from YAML to " + storageType.toUpperCase());
-    }
-
-    public FileConfiguration getMessagesConfig() {
-        if (messagesConfig == null) {
-            File messagesFile = new File(getDataFolder(), "messages.yml");
-            messagesConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(messagesFile);
-        }
-        return messagesConfig;
-    }
-
-    private void saveDefaultMessagesConfig() {
-        File messagesFile = new File(getDataFolder(), "messages.yml");
-        if (!messagesFile.exists()) {
-            saveResource("messages.yml", false);
+        if (preferences != null) {
+            preferences.close();
         }
     }
 
-    private void saveDefaultExamples() {
-        File langsFolder = new File(getDataFolder(), "langs");
-        if (!langsFolder.exists()) langsFolder.mkdirs();
-        File exampleFolder = new File(langsFolder, "uk_ua");
-        if (!exampleFolder.exists()) {
-            exampleFolder.mkdirs();
-            saveResource("langs/uk_ua/example.yml", false);
+    public List<String> reload() {
+        reloadConfig();
+        messages.reload();
+        prompts.reload();
+        TranslatorConfig config = new TranslatorConfig(getConfig());
+        List<String> errors = apply(config, false);
+        if (errors.isEmpty()) {
+            languages.load(config.getDefaultLang());
         }
-        File exampleFolder2 = new File(langsFolder, "en_us");
-        if (!exampleFolder2.exists()) {
-            exampleFolder2.mkdirs();
-            saveResource("langs/en_us/example.yml", false);
-        }
-    }
-
-    public LangManager getLangManager() {
-        return langManager;
-    }
-
-    public void log(String message) {
-        Bukkit.getConsoleSender().sendMessage(Component.text("[MysterriaTranslator]").color(NamedTextColor.AQUA).append(Component.text(" " + message).color(NamedTextColor.WHITE)));
+        return errors;
     }
 
     public void debug(String message) {
-        if (getConfig().getBoolean("debug", false)) {
-            Bukkit.getConsoleSender().sendMessage(Component.text("[MysterriaTranslator]").color(NamedTextColor.AQUA).append(Component.text(" [DEBUG] " + message).color(NamedTextColor.YELLOW)));
+        TranslatorConfig current = settings;
+        if (current != null && current.isDebug()) {
+            getSLF4JLogger().info("[debug] {}", message);
         }
     }
 
-    public void reloadProviders() {
-        reloadConfig();
-        if (translationManager != null) {
-            translationManager.reloadProviders();
+    private List<String> apply(TranslatorConfig config, boolean startup) {
+        TranslationSettings translation = config.getTranslation();
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(translation.getConnectTimeoutSeconds()))
+                .build();
+        List<TranslationEngine> created = config.createEngines(new TranslationEngine.Context(client, prompts,
+                Duration.ofSeconds(translation.getConnectTimeoutSeconds()), Duration.ofMinutes(translation.getSuspensionMinutes())));
+        List<String> errors = List.copyOf(config.getErrors());
+        if (!errors.isEmpty() && !startup) {
+            client.shutdownNow();
+            return errors;
+        }
+
+        HttpClient previous = http;
+        http = client;
+        settings = config;
+        threadPool.resize(translation);
+        engines.configure(translation, errors.isEmpty() ? created : List.of());
+        translations.configure(translation);
+        chat.getMarker().configure(translation);
+        chat.configure(config);
+        preferences.setDefaultLanguage(config.getDefaultLang());
+        if (previous != null) {
+            previous.shutdown();
+        }
+        return errors;
+    }
+
+    private void registerListeners() {
+        PluginManager plugins = getServer().getPluginManager();
+        plugins.registerEvents(new PreferenceListener(preferences, languages), this);
+        if (plugins.isPluginEnabled("ZelChat")) {
+            zelChat = new ZelChatListener(this, chat);
+            zelChat.register();
+            getSLF4JLogger().info("Translating chat through ZelChat");
+        } else if (plugins.isPluginEnabled("ChatControl")) {
+            plugins.registerEvents(new ChatControlListener(chat), this);
+            getSLF4JLogger().info("Translating chat through ChatControl");
+        } else {
+            plugins.registerEvents(new BukkitChatListener(chat), this);
+            getSLF4JLogger().info("Translating chat through Paper chat events");
         }
     }
 
-    public ConfigValidator.ValidationResult reloadTranslationManager() {
-        log("Reloading translation engines and manager...");
-
-        reloadConfig();
-
-        ConfigValidator validator = new ConfigValidator(this);
-        ConfigValidator.ValidationResult validationResult = validator.validate();
-
-        if (!validationResult.isValid()) {
-            getLogger().warning("Configuration validation failed! Using previous configuration.");
-            for (String error : validationResult.errors()) {
-                getLogger().warning("  - " + error);
-            }
-            return validationResult;
+    private void saveDefaultLanguages() {
+        if (!new File(getDataFolder(), "langs").exists()) {
+            saveResource("langs/en_us/example.yml", false);
+            saveResource("langs/uk_ua/example.yml", false);
         }
-
-        if (validationResult.hasWarnings()) {
-            for (String warning : validationResult.warnings()) {
-                getLogger().warning("  - " + warning);
-            }
-        }
-
-        if (translationManager != null) {
-            translationManager.shutdown();
-        }
-
-        shutdownEngineClients();
-
-        this.ollamaClient = null;
-        this.libreTranslateClient = null;
-        this.geminiClient = null;
-        this.openAIClient = null;
-        this.googleClient = null;
-
-        if (translationPool != null) {
-            translationPool.reconfigure();
-        }
-
-
-        if (promptManager != null) {
-            promptManager.reload();
-            log("Reloaded translation prompts");
-        }
-
-        int suspensionMinutes = getConfig().getInt("translation.rateLimitSuspensionMinutes", 20);
-        this.suspensionManager = new RateLimitManager(this, suspensionMinutes);
-        log("Reset rate limit suspension manager (suspension duration: " + suspensionMinutes + " minutes)");
-
-        String providerConfig = getConfig().getString("translation.provider", "ollama");
-        List<String> enabledProviders = Arrays.stream(providerConfig.split(","))
-                .map(String::trim)
-                .map(String::toLowerCase)
-                .filter(p -> !p.isEmpty())
-                .collect(Collectors.toList());
-
-        log("Reloading with providers: " + String.join(", ", enabledProviders));
-
-        try {
-            this.geminiClient = new GeminiClient(this, promptManager, suspensionManager, getConfig().getStringList("engines.gemini.apiKeys"));
-            this.ollamaClient = new OllamaClient(this, promptManager, getConfig().getString("engines.ollama.url"), getConfig().getString("engines.ollama.model"), getConfig().getString("engines.ollama.apiKey"));
-            this.libreTranslateClient = new LibreTranslateClient(this,
-                    getConfig().getString("engines.libretranslate.url"),
-                    getConfig().getString("engines.libretranslate.apiKey"),
-                    getConfig().getInt("engines.libretranslate.alternatives", 3),
-                    getConfig().getString("engines.libretranslate.format", "text"));
-            this.openAIClient = new OpenAIClient(this, promptManager,
-                    getConfig().getString("engines.openai.baseUrl", "https://api.openai.com/v1"),
-                    getConfig().getString("engines.openai.model", "gpt-4o-mini"),
-                    getConfig().getString("engines.openai.apiKey", ""));
-
-            this.googleClient = new GoogleClient(this);
-
-            this.translationManager = new TranslationManager(this, suspensionManager,
-                    ollamaClient, libreTranslateClient, geminiClient, openAIClient, googleClient);
-
-            this.translationManager.reloadProviders();
-
-            log("Translation engines and manager successfully reloaded");
-        } catch (Exception e) {
-            getLogger().severe("Failed to reinitialize translation engines: " + e.getMessage());
-            getLogger().info(Arrays.toString(e.getStackTrace()));
-        }
-
-        return validationResult;
     }
-
 }

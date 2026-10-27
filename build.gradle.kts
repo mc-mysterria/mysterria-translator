@@ -1,76 +1,55 @@
 plugins {
     `java-library`
-    `maven-publish`
-    id("com.gradleup.shadow") version "9.4.1"
+    id("com.gradleup.shadow") version "9.4.2"
     id("xyz.jpenilla.run-paper") version "3.0.2"
 }
 
 repositories {
     mavenCentral()
-    mavenLocal()
-
-    maven { url = uri("https://repo.codemc.io/repository/maven-releases/") }
-    maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
-
-    flatDir {
-        dirs("libs")
-    }
-
-    maven {
-        name = "pinodevRepo"
-        url = uri("https://repo.pinodev.it/releases")
-    }
-
-    maven {
-        url = uri("https://repo.papermc.io/repository/maven-public/")
-    }
-    maven {
-        url = uri("https://repo.extendedclip.com/content/repositories/placeholderapi/")
-    }
-    maven {
-        url = uri("https://mvn.lib.co.nz/public")
-        content {
-            includeGroup("me.libraryaddict.disguises")
-        }
+    maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
+    maven("https://repo.codemc.io/repository/maven-releases/")
+    maven("https://repo.pinodev.it/releases")
+    maven("https://mvn.lib.co.nz/public") {
+        content { includeGroup("me.libraryaddict.disguises") }
     }
 }
 
 dependencies {
-    compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-26")
-    compileOnly(files("libs/ChatControl-11.5.3.jar"))
+    compileOnly("io.papermc.paper:paper-api:26.3.build.+")
     compileOnly("me.clip:placeholderapi:2.12.2")
-    compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
-    implementation("com.google.genai:google-genai:1.26.0")
-    implementation("com.google.code.gson:gson:2.10.1")
-    compileOnlyApi("me.libraryaddict.disguises:libsdisguises:11.0.16")
-    compileOnly("com.github.retrooper:packetevents-spigot:2.12.1")
-}
-
-tasks.named("build") {
-    dependsOn(tasks.named("shadowJar"))
+    compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-31")
+    compileOnly(files("libs/ChatControl-11.5.3.jar"))
+    compileOnly("me.libraryaddict.disguises:libsdisguises:11.0.16")
+    compileOnly("org.projectlombok:lombok:1.18.44")
+    annotationProcessor("org.projectlombok:lombok:1.18.44")
 }
 
 group = "net.mysterria"
-version = "2.0.2"
+version = "3.0.0"
 description = "translator"
-java.sourceCompatibility = JavaVersion.VERSION_25
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
 
 tasks {
+    build {
+        dependsOn(shadowJar)
+    }
+
+    withType<JavaCompile> {
+        options.encoding = "UTF-8"
+    }
+
+    processResources {
+        val props = mapOf("version" to version)
+        filesMatching("plugin.yml") {
+            expand(props)
+        }
+    }
+
     runServer {
-        minecraftVersion("26.1.2")
+        minecraftVersion("26.3")
     }
-}
-
-publishing {
-    publications.create<MavenPublication>("maven") {
-        from(components["java"])
-    }
-}
-
-tasks.withType<JavaCompile>() {
-    options.encoding = "UTF-8"
-}
-
-tasks.withType<Javadoc>() {
-    options.encoding = "UTF-8"
 }
