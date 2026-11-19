@@ -36,9 +36,10 @@ public class YamlPreferenceStorage implements PreferenceStorage {
             }
             ConfigurationSection section = yaml.getConfigurationSection(key);
             preferences.put(uuid, section == null
-                    ? new LanguagePreference(yaml.getString(key), null, true, false)
+                    ? new LanguagePreference(yaml.getString(key), null, true, false, true, true)
                     : new LanguagePreference(section.getString("lang"), section.getString("chat"),
-                    section.getBoolean("enabled", true), section.getBoolean("hint", false)));
+                    section.getBoolean("enabled", true), section.getBoolean("hint", false),
+                    section.getBoolean("global", true), section.getBoolean("discord", true)));
         }
         return preferences;
     }
@@ -51,6 +52,8 @@ public class YamlPreferenceStorage implements PreferenceStorage {
         yaml.set(key + ".chat", preference.getChatLanguage());
         yaml.set(key + ".enabled", preference.isTranslationsEnabled());
         yaml.set(key + ".hint", preference.isHintShown());
+        yaml.set(key + ".global", preference.isGlobalChatShown());
+        yaml.set(key + ".discord", preference.isDiscordChatShown());
         try {
             yaml.save(file);
         } catch (IOException e) {

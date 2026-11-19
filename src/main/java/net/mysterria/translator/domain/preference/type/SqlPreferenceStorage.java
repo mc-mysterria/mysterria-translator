@@ -15,11 +15,13 @@ import java.util.UUID;
 
 public class SqlPreferenceStorage implements PreferenceStorage {
 
-    private static final String SELECT_ALL = "SELECT uuid, lang, enabled, chat_lang, hint_shown FROM player_langs";
-    private static final String MYSQL_UPSERT = "INSERT INTO player_langs (uuid, lang, enabled, chat_lang, hint_shown) VALUES (?, ?, ?, ?, ?) "
-            + "ON DUPLICATE KEY UPDATE lang = VALUES(lang), enabled = VALUES(enabled), chat_lang = VALUES(chat_lang), hint_shown = VALUES(hint_shown)";
-    private static final String SQLITE_UPSERT = "INSERT INTO player_langs (uuid, lang, enabled, chat_lang, hint_shown) VALUES (?, ?, ?, ?, ?) "
-            + "ON CONFLICT(uuid) DO UPDATE SET lang = excluded.lang, enabled = excluded.enabled, chat_lang = excluded.chat_lang, hint_shown = excluded.hint_shown";
+    private static final String SELECT_ALL = "SELECT uuid, lang, enabled, chat_lang, hint_shown, show_global, show_discord FROM player_langs";
+    private static final String MYSQL_UPSERT = "INSERT INTO player_langs (uuid, lang, enabled, chat_lang, hint_shown, show_global, show_discord) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            + "ON DUPLICATE KEY UPDATE lang = VALUES(lang), enabled = VALUES(enabled), chat_lang = VALUES(chat_lang), hint_shown = VALUES(hint_shown), "
+            + "show_global = VALUES(show_global), show_discord = VALUES(show_discord)";
+    private static final String SQLITE_UPSERT = "INSERT INTO player_langs (uuid, lang, enabled, chat_lang, hint_shown, show_global, show_discord) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            + "ON CONFLICT(uuid) DO UPDATE SET lang = excluded.lang, enabled = excluded.enabled, chat_lang = excluded.chat_lang, hint_shown = excluded.hint_shown, "
+            + "show_global = excluded.show_global, show_discord = excluded.show_discord";
 
     private final String url;
     private final String user;
@@ -47,7 +49,9 @@ public class SqlPreferenceStorage implements PreferenceStorage {
                         rows.getString("lang"),
                         rows.getString("chat_lang"),
                         rows.getInt("enabled") != 0,
-                        rows.getInt("hint_shown") != 0));
+                        rows.getInt("hint_shown") != 0,
+                        rows.getInt("show_global") != 0,
+                        rows.getInt("show_discord") != 0));
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Could not load language preferences", e);
@@ -63,6 +67,8 @@ public class SqlPreferenceStorage implements PreferenceStorage {
             statement.setInt(3, preference.isTranslationsEnabled() ? 1 : 0);
             statement.setString(4, preference.getChatLanguage());
             statement.setInt(5, preference.isHintShown() ? 1 : 0);
+            statement.setInt(6, preference.isGlobalChatShown() ? 1 : 0);
+            statement.setInt(7, preference.isDiscordChatShown() ? 1 : 0);
             statement.executeUpdate();
         } catch (SQLException e) {
             logger.error("Could not save language preference of {}", uuid, e);
@@ -98,6 +104,8 @@ public class SqlPreferenceStorage implements PreferenceStorage {
             addColumnIfMissing(statement, "enabled", mysql ? "TINYINT(1) DEFAULT 1" : "INTEGER DEFAULT 1");
             addColumnIfMissing(statement, "chat_lang", mysql ? "VARCHAR(16)" : "TEXT");
             addColumnIfMissing(statement, "hint_shown", mysql ? "TINYINT(1) DEFAULT 0" : "INTEGER DEFAULT 0");
+            addColumnIfMissing(statement, "show_global", mysql ? "TINYINT(1) DEFAULT 1" : "INTEGER DEFAULT 1");
+            addColumnIfMissing(statement, "show_discord", mysql ? "TINYINT(1) DEFAULT 1" : "INTEGER DEFAULT 1");
         }
     }
 

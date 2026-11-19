@@ -2,9 +2,9 @@ name: MysterriaTranslator
 version: '${version}'
 author: Mysterria
 main: net.mysterria.translator.MysterriaTranslator
-api-version: '26.3'
+api-version: '26.2'
 depend: [ PlaceholderAPI ]
-softdepend: [ ZelChat, ChatControl, LibsDisguises ]
+softdepend: [ ZelChat, ChatControl, LibsDisguises, DiscordSRV ]
 permissions:
   mtranslator.admin:
     description: Manage other players' languages, reload and inspect translation engines

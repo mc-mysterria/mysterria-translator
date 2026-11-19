@@ -58,12 +58,17 @@ public class ZelChatListener {
 
         @Override
         public void handleChatMessage(@NotNull ChatMessage message) {
-            if (!service.isTranslationEnabled() || message.doNothing()
-                    || message.getState() == MessageState.CANCELLED || message.getState() == MessageState.FILTERED_CANCELLED) {
+            if (message.doNothing() || message.getState() == MessageState.CANCELLED || message.getState() == MessageState.FILTERED_CANCELLED) {
                 return;
             }
             ChannelType type = message.getChannel().getType();
             ChatSettings chat = service.getChat();
+            if (!service.isTranslationEnabled()) {
+                if (type == ChannelType.EVERYONE && chat.isGlobalMessage(message.getRawMessage())) {
+                    hideGlobal(message, message.getBukkitPlayer(), service.globalAudience(message.getBukkitPlayer()));
+                }
+                return;
+            }
             if (type == ChannelType.PRIVATE && chat.isZelChatPrivateMessages()) {
                 translatePrivate(message, chat);
             } else if (type == ChannelType.EVERYONE) {
@@ -93,7 +98,7 @@ public class ZelChatListener {
             message.setMessage(message.getMessage().replaceText(builder -> builder.matchLiteral(chat.getGlobalPrefix()).once().replacement(Component.empty())));
         }
 
-        Set<Player> audience = range ? service.rangeAudience(sender) : service.everyoneBut(sender);
+        Set<Player> audience = range ? service.rangeAudience(sender) : service.globalAudience(sender);
         PendingTranslation pending = RICH_TOKEN.matcher(text).find() ? null : service.plan(text, audience, sender);
         Set<Player> translated = pending == null ? Set.of() : pending.recipients();
         Set<Audience> direct = new HashSet<>();
@@ -116,6 +121,8 @@ public class ZelChatListener {
         if (range || pending != null) {
             message.getChannel().setType(ChannelType.CUSTOM);
             message.getChannel().setViewers(direct);
+        } else {
+            hideGlobal(message, sender, audience);
         }
         if (pending == null) {
             return;
@@ -124,6 +131,16 @@ public class ZelChatListener {
         String literal = text;
         service.deliver(pending, sender, formatted, result -> formatted.replaceText(builder -> builder.matchLiteral(literal).replacement(
                 service.getMarker().decorate(Component.text(result.getTranslated()), result, chat.isZelChatHover()))));
+    }
+
+    private static void hideGlobal(ChatMessage message, Player sender, Set<Player> audience) {
+        if (audience.size() >= Bukkit.getOnlinePlayers().size() - 1) {
+            return;
+        }
+        Set<Audience> viewers = new HashSet<>(audience);
+        viewers.add(sender);
+        message.getChannel().setType(ChannelType.CUSTOM);
+        message.getChannel().setViewers(viewers);
     }
 
     private void translatePrivate(ChatMessage message, ChatSettings chat) {

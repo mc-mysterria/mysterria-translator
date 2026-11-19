@@ -8,6 +8,7 @@ import net.mysterria.translator.config.TranslatorConfig;
 import net.mysterria.translator.config.models.TranslationSettings;
 import net.mysterria.translator.domain.chat.listener.BukkitChatListener;
 import net.mysterria.translator.domain.chat.listener.ChatControlListener;
+import net.mysterria.translator.domain.chat.listener.DiscordChatListener;
 import net.mysterria.translator.domain.chat.listener.ZelChatListener;
 import net.mysterria.translator.domain.chat.service.ChatTranslationService;
 import net.mysterria.translator.domain.chat.service.TranslationMarker;
@@ -45,6 +46,8 @@ public class MysterriaTranslator extends JavaPlugin {
     private HttpClient http;
     @Getter(AccessLevel.NONE)
     private ZelChatListener zelChat;
+    @Getter(AccessLevel.NONE)
+    private DiscordChatListener discordChat;
 
     @Override
     public void onEnable() {
@@ -80,6 +83,9 @@ public class MysterriaTranslator extends JavaPlugin {
     public void onDisable() {
         if (zelChat != null) {
             zelChat.unregister();
+        }
+        if (discordChat != null) {
+            discordChat.unregister();
         }
         if (threadPool != null) {
             threadPool.shutdown();
@@ -152,6 +158,10 @@ public class MysterriaTranslator extends JavaPlugin {
         } else {
             plugins.registerEvents(new BukkitChatListener(chat), this);
             getSLF4JLogger().info("Translating chat through Paper chat events");
+        }
+        if (plugins.isPluginEnabled("DiscordSRV")) {
+            discordChat = new DiscordChatListener(preferences);
+            discordChat.register();
         }
     }
 

@@ -44,7 +44,7 @@ public class BukkitChatListener implements Listener {
         boolean global = chat.isGlobalMessage(raw);
         if (event.isCancelled()) {
             if (global) {
-                translateOnly(sender, chat.stripGlobalPrefix(raw), service.everyoneBut(sender), chat.getGlobalFormat());
+                translateOnly(sender, chat.stripGlobalPrefix(raw), service.globalAudience(sender), chat.getGlobalFormat());
             }
             return;
         }
@@ -94,7 +94,7 @@ public class BukkitChatListener implements Listener {
 
     private void broadcastGlobal(AsyncChatEvent event, Player sender, String text, ChatSettings chat) {
         event.setCancelled(true);
-        Set<Player> audience = service.everyoneBut(sender);
+        Set<Player> audience = service.globalAudience(sender);
         PendingTranslation pending = service.plan(text, audience, sender);
         Set<Player> translated = pending == null ? Set.of() : pending.recipients();
         Component original = service.format(chat.getGlobalFormat(), sender, text, null, false);

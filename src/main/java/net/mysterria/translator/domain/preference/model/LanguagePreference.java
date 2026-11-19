@@ -12,8 +12,10 @@ public class LanguagePreference {
     private String chatLanguage;
     private boolean translationsEnabled;
     private boolean hintShown;
+    private boolean globalChatShown;
+    private boolean discordChatShown;
 
     public LanguagePreference copy() {
-        return new LanguagePreference(language, chatLanguage, translationsEnabled, hintShown);
+        return new LanguagePreference(language, chatLanguage, translationsEnabled, hintShown, globalChatShown, discordChatShown);
     }
 }

@@ -23,7 +23,7 @@ import java.util.stream.Stream;
 public class LangCommand implements BasicCommand {
 
     private static final String ADMIN = "mtranslator.admin";
-    private static final List<String> PLAYER_SUBCOMMANDS = List.of("help", "toggle", "on", "off", "chat", "ui");
+    private static final List<String> PLAYER_SUBCOMMANDS = List.of("help", "toggle", "on", "off", "chat", "ui", "global", "discord");
     private static final List<String> ADMIN_SUBCOMMANDS = List.of("set", "get", "list", "reload", "engines");
     private static final String AUTO = "auto";
 
@@ -48,6 +48,7 @@ public class LangCommand implements BasicCommand {
             case "toggle", "on", "off" -> asPlayer(sender, player -> toggle(player, subcommand));
             case "chat" -> asPlayer(sender, player -> setChatLanguage(player, args));
             case "ui" -> asPlayer(sender, player -> setInterfaceLanguage(player, args));
+            case "global", "discord" -> asPlayer(sender, player -> toggleChannel(player, subcommand, args));
             case "set" -> setForOther(sender, args);
             case "get" -> getForOther(sender, args);
             case "list" -> messages().send(sender, "list_languages", "{langs}", String.join(", ", plugin.getLanguages().available()));
@@ -72,6 +73,7 @@ public class LangCommand implements BasicCommand {
             return switch (subcommand) {
                 case "chat" -> startingWith(Stream.concat(Stream.of(AUTO), Language.translatableCodes().stream()), partial);
                 case "ui" -> startingWith(plugin.getLanguages().available().stream(), partial);
+                case "global", "discord" -> startingWith(Stream.of("on", "off"), partial);
                 case "set", "get" -> sender.hasPermission(ADMIN)
                         ? startingWith(Bukkit.getOnlinePlayers().stream().map(Player::getName), partial)
                         : List.of();
@@ -92,7 +94,25 @@ public class LangCommand implements BasicCommand {
                 "{ui}", plugin.getPreferences().language(player.getUniqueId()),
                 "{chat}", Languages.displayName(plugin.getPreferences().chatTarget(player)),
                 "{chat_mode}", messages().raw(pinned ? "chat_mode_pinned" : "chat_mode_auto"),
-                "{state}", messages().raw(enabled ? "state_on" : "state_off"));
+                "{state}", messages().raw(enabled ? "state_on" : "state_off"),
+                "{global}", messages().raw(plugin.getPreferences().globalChatShown(player.getUniqueId()) ? "state_on" : "state_off"),
+                "{discord}", messages().raw(plugin.getPreferences().discordChatShown(player.getUniqueId()) ? "state_on" : "state_off"));
+    }
+
+    private void toggleChannel(Player player, String channel, String[] args) {
+        boolean global = channel.equals("global");
+        boolean current = global
+                ? plugin.getPreferences().globalChatShown(player.getUniqueId())
+                : plugin.getPreferences().discordChatShown(player.getUniqueId());
+        boolean shown = args.length < 2 ? !current : args[1].equalsIgnoreCase("on");
+        plugin.getPreferences().update(player.getUniqueId(), preference -> {
+            if (global) {
+                preference.setGlobalChatShown(shown);
+            } else {
+                preference.setDiscordChatShown(shown);
+            }
+        });
+        messages().send(player, channel + (shown ? "_shown" : "_hidden"));
     }
 
     private void toggle(Player player, String subcommand) {

@@ -10,16 +10,20 @@ repositories {
     maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
     maven("https://repo.codemc.io/repository/maven-releases/")
     maven("https://repo.pinodev.it/releases")
+    maven("https://nexus.scarsz.me/content/groups/public/") {
+        content { includeGroup("com.discordsrv") }
+    }
     maven("https://mvn.lib.co.nz/public") {
         content { includeGroup("me.libraryaddict.disguises") }
     }
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.3.build.+")
+    compileOnly("io.papermc.paper:paper-api:26.2.build.+")
     compileOnly("me.clip:placeholderapi:2.12.2")
     compileOnly("it.pino.zelchat:zelchat-api:2.0.0-pre-31")
     compileOnly(files("libs/ChatControl-11.5.3.jar"))
+    compileOnly("com.discordsrv:discordsrv:1.30.5") { isTransitive = false }
     compileOnly("me.libraryaddict.disguises:libsdisguises:11.0.16")
     compileOnly("org.projectlombok:lombok:1.18.44")
     annotationProcessor("org.projectlombok:lombok:1.18.44")

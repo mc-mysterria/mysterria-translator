@@ -149,6 +149,12 @@ public class ChatTranslationService {
         return audience;
     }
 
+    public Set<Player> globalAudience(Player sender) {
+        Set<Player> audience = everyoneBut(sender);
+        audience.removeIf(player -> !preferences.globalChatShown(player.getUniqueId()));
+        return audience;
+    }
+
     private void send(PendingTranslation pending, CommandSender sender, Component fallback,
                       Function<TranslationResult, Component> render, Map<Locale, TranslationResult> results) {
         boolean rateLimited = false;

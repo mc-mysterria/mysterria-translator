@@ -56,6 +56,16 @@ public class PreferenceService {
         return preference == null || preference.isTranslationsEnabled();
     }
 
+    public boolean globalChatShown(UUID uuid) {
+        LanguagePreference preference = preferences.get(uuid);
+        return preference == null || preference.isGlobalChatShown();
+    }
+
+    public boolean discordChatShown(UUID uuid) {
+        LanguagePreference preference = preferences.get(uuid);
+        return preference == null || preference.isDiscordChatShown();
+    }
+
     public Locale chatTarget(Player player) {
         LanguagePreference preference = preferences.get(player.getUniqueId());
         return preference == null || preference.getChatLanguage() == null
@@ -70,7 +80,7 @@ public class PreferenceService {
 
     public void update(UUID uuid, Consumer<LanguagePreference> change) {
         LanguagePreference updated = preferences.compute(uuid, (id, current) -> {
-            LanguagePreference preference = current == null ? new LanguagePreference(defaultLanguage, null, true, false) : current;
+            LanguagePreference preference = current == null ? new LanguagePreference(defaultLanguage, null, true, false, true, true) : current;
             change.accept(preference);
             return preference;
         });
